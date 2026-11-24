@@ -1,0 +1,1032 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vokabel-Blaster</title>
+<style>
+  :root { --bg:#070b1a; --panel:rgba(12,18,40,.92); --line:#2b3a6b; --text:#e8ecff; --muted:#8f9ac4; --accent:#3ee0ff; --good:#5bf08a; --warn:#ffc94a; --bad:#ff5d73; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  body { display:flex; align-items:center; justify-content:center; padding:8px; }
+  #wrap { position:relative; width:min(100%, 900px, calc((100vh - 16px) * 1.5)); aspect-ratio:3/2; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  #ui, #fx { position:absolute; inset:0; pointer-events:none; }
+  #ui { display:flex; align-items:center; justify-content:center; padding:16px; }
+  .panel { pointer-events:auto; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px 24px; width:min(100%, 640px); max-height:100%; overflow:auto; box-shadow:0 10px 40px rgba(0,0,0,.5); }
+  .panel.boss { align-self:flex-end; width:min(100%, 540px); padding:14px 18px; border-color:var(--bad); }
+  .hidden { display:none !important; }
+  h1 { margin:0 0 4px; font-size:2rem; letter-spacing:.04em; color:var(--accent); text-shadow:0 0 18px rgba(62,224,255,.5); }
+  h2 { margin:0 0 10px; }
+  h3 { margin:14px 0 6px; font-size:.95rem; color:var(--muted); font-weight:600; }
+  p { margin:6px 0; color:var(--muted); line-height:1.45; }
+  .topics { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:6px 14px; }
+  label { display:inline-flex; gap:8px; align-items:center; cursor:pointer; }
+  .opts { display:flex; gap:16px; flex-wrap:wrap; }
+  textarea { width:100%; min-height:100px; background:#0b1230; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; font:inherit; font-size:.9rem; }
+  button { font:inherit; font-weight:600; border:0; border-radius:9px; padding:10px 18px; cursor:pointer; background:var(--accent); color:#04121a; }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
+  button:hover { filter:brightness(1.1); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .ships { display:flex; gap:8px; flex-wrap:wrap; }
+  .ships button { background:#0b1230; color:var(--text); border:2px solid var(--line); padding:6px 12px; font-size:.9rem; }
+  .ships button.sel { border-color:var(--accent); }
+  .row { display:flex; gap:10px; justify-content:flex-end; align-items:center; margin-top:14px; flex-wrap:wrap; }
+  .row.left { justify-content:space-between; }
+  .qhead { display:flex; justify-content:space-between; color:var(--muted); font-size:.95rem; }
+  .ammo { color:var(--warn); font-weight:700; }
+  .prompt-label { margin-top:12px; color:var(--muted); font-size:.9rem; }
+  .prompt { font-size:1.9rem; font-weight:700; margin:4px 0 14px; }
+  .boss .prompt { font-size:1.5rem; margin:2px 0 8px; }
+  .answer { width:100%; font-size:1.5rem; padding:10px 12px; border-radius:10px; border:2px solid var(--line); background:#0b1230; color:var(--text); outline:none; }
+  .answer:focus { border-color:var(--accent); }
+  .answer.shake { animation:shake .3s; border-color:var(--bad); }
+  @keyframes shake { 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+  .accents { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .accents button { padding:6px 11px; background:#18234d; color:var(--text); font-size:1.05rem; }
+  .fb { min-height:3.2em; margin-top:12px; font-size:1.05rem; line-height:1.4; }
+  .boss .fb { min-height:1.6em; margin-top:8px; }
+  .fb.good { color:var(--good); } .fb.warn { color:var(--warn); } .fb.bad { color:var(--bad); }
+  .fb b { color:var(--text); }
+  .hint { font-size:.8rem; color:var(--muted); }
+  .timer { height:6px; background:#18234d; border-radius:3px; overflow:hidden; margin-top:8px; }
+  .timer div { height:100%; background:var(--bad); width:100%; }
+  #banner { position:absolute; left:0; right:0; top:36%; text-align:center; font-size:2.6rem; font-weight:800; color:var(--warn); text-shadow:0 0 24px rgba(255,201,74,.6); pointer-events:none; }
+  #banner small { display:block; font-size:1.05rem; font-weight:600; color:var(--text); text-shadow:none; margin-top:8px; }
+  .fly { position:absolute; font-weight:800; font-size:1.4rem; color:var(--warn); text-shadow:0 0 10px rgba(255,201,74,.8); transition:transform .7s cubic-bezier(.5,-.3,.6,1), opacity .7s; }
+  .missed { margin:10px 0; padding:0; list-style:none; columns:2; font-size:.95rem; }
+  .missed li { margin:2px 0; }
+  .stats { display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin:12px 0; }
+  .stats b { color:var(--accent); }
+  .progress { color:var(--good); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="900" height="600"></canvas>
+  <div id="ui">
+    <div id="menu" class="panel">
+      <h1>VOKABEL-BLASTER</h1>
+      <p>Tippe die Vokabeln richtig ein. Jeder Buchstabe einer richtigen Antwort wird zu Munition. Danach greifen Raumgleiter an. Ist die Munition alle, ist das Spiel vorbei.</p>
+      <h3>Themen</h3>
+      <div class="topics" id="topics"></div>
+      <div style="margin-top:8px"><label><input type="checkbox" id="useCustom"> Eigene Vokabelliste</label></div>
+      <div id="customBox" class="hidden" style="margin-top:8px">
+        <textarea id="customList" placeholder="eine Vokabel pro Zeile: deutsch = spanisch&#10;der Hund = el perro&#10;das Auto = el coche / el carro"></textarea>
+        <p class="hint">Mehrere richtige Antworten mit / trennen. Die Liste bleibt in diesem Browser gespeichert.</p>
+      </div>
+      <h3>Richtung</h3>
+      <div class="opts">
+        <label><input type="radio" name="dir" value="de-es"> Deutsch → Spanisch</label>
+        <label><input type="radio" name="dir" value="es-de"> Spanisch → Deutsch (leichter)</label>
+      </div>
+      <h3>Raumschiff</h3>
+      <div class="ships" id="ships"></div>
+      <p class="progress" id="progress"></p>
+      <div class="row left">
+        <span class="hint" id="hiscore"></span>
+        <span><button class="ghost" id="muteBtn">Ton: an</button> <button id="startBtn">Start ⏎</button></span>
+      </div>
+      <p id="menuErr" class="fb bad" style="min-height:0"></p>
+    </div>
+
+    <div id="quiz" class="panel hidden">
+      <div class="qhead"><span id="qRound"></span><span class="ammo" id="qAmmo"></span></div>
+      <div class="prompt-label" id="qLabel"></div>
+      <div class="prompt" id="qPrompt"></div>
+      <input id="qInput" class="answer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <div class="accents" id="qAccents"></div>
+      <div class="fb" id="qFb"></div>
+      <div class="row">
+        <span class="hint" style="margin-right:auto" id="qKeyHint"></span>
+        <button class="ghost" id="qSkip">Weiß ich nicht</button>
+        <button id="qOk">Prüfen ⏎</button>
+      </div>
+    </div>
+
+    <div id="bossPanel" class="panel boss hidden">
+      <div class="qhead"><span>BOSS · Übersetze, um ihn zu zerstören</span><span id="bTime"></span></div>
+      <div class="prompt" id="bPrompt"></div>
+      <input id="bInput" class="answer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <div class="accents" id="bAccents"></div>
+      <div class="timer"><div id="bBar"></div></div>
+      <div class="fb" id="bFb"></div>
+    </div>
+
+    <div id="pause" class="panel hidden" style="width:min(100%,360px);text-align:center">
+      <h2>Pause</h2>
+      <div class="row" style="justify-content:center">
+        <button class="ghost" id="quitBtn">Spiel beenden</button>
+        <button id="resumeBtn">Weiter (Esc)</button>
+      </div>
+    </div>
+
+    <div id="over" class="panel hidden">
+      <h2 id="overTitle"></h2>
+      <div class="stats" id="overStats"></div>
+      <p class="progress" id="overProgress"></p>
+      <p id="overUnlock" class="fb good" style="min-height:0"></p>
+      <div id="missedBox"></div>
+      <div class="row">
+        <button class="ghost" id="menuBtn">Menü</button>
+        <button id="againBtn">Nochmal ⏎</button>
+      </div>
+    </div>
+  </div>
+  <div id="fx"></div>
+  <div id="banner" class="hidden"></div>
+</div>
+
+<script>
+const LISTS = {
+  familie: { name: 'Familie & Leute', words: [
+    ['die Mutter','la madre'],['der Vater','el padre'],['der Bruder','el hermano'],['die Schwester','la hermana'],
+    ['der Freund','el amigo'],['die Freundin','la amiga'],['der Junge','el chico'],['das Mädchen','la chica'],
+    ['die Familie','la familia'],['der Großvater','el abuelo'],['die Großmutter','la abuela'],['der Lehrer','el profesor'],
+    ['die Eltern','los padres'],['der Sohn','el hijo'],['die Tochter','la hija'],['die Geschwister','los hermanos']]},
+  tiere: { name: 'Tiere', words: [
+    ['der Hund','el perro'],['die Katze','el gato / la gata'],['das Pferd','el caballo'],['der Vogel','el pájaro'],
+    ['der Fisch','el pez'],['die Maus','el ratón'],['die Kuh','la vaca'],['das Schwein','el cerdo'],
+    ['der Bär','el oso'],['die Schlange','la serpiente'],['der Affe','el mono'],['das Huhn','la gallina'],
+    ['das Kaninchen','el conejo'],['der Elefant','el elefante'],['die Spinne','la araña'],['der Löwe','el león']]},
+  farben: { name: 'Farben & Zahlen', words: [
+    ['rot','rojo'],['blau','azul'],['grün','verde'],['gelb','amarillo'],['schwarz','negro'],['weiß','blanco'],
+    ['braun','marrón'],['grau','gris'],['eins','uno'],['zwei','dos'],['drei','tres'],['vier','cuatro'],['fünf','cinco'],
+    ['sechs','seis'],['sieben','siete'],['acht','ocho'],['neun','nueve'],['zehn','diez'],['zwanzig','veinte'],['hundert','cien']]},
+  essen: { name: 'Essen & Trinken', words: [
+    ['das Brot','el pan'],['das Wasser','el agua'],['die Milch','la leche'],['der Apfel','la manzana'],
+    ['die Banane','el plátano / la banana'],['der Käse','el queso'],['das Ei','el huevo'],['das Fleisch','la carne'],
+    ['der Reis','el arroz'],['die Suppe','la sopa'],['der Saft','el zumo / el jugo'],['das Hähnchen','el pollo'],
+    ['der Kuchen','el pastel / la tarta'],['die Kartoffel','la patata / la papa'],['das Frühstück','el desayuno'],['das Eis','el helado']]},
+  schule: { name: 'Schule', words: [
+    ['die Schule','la escuela / el colegio'],['das Buch','el libro'],['das Heft','el cuaderno'],['der Kuli','el bolígrafo / el boli'],
+    ['der Bleistift','el lápiz'],['der Tisch','la mesa'],['der Stuhl','la silla'],['die Tafel','la pizarra'],
+    ['die Hausaufgaben','los deberes'],['die Klasse','la clase'],['der Rucksack','la mochila'],['das Fenster','la ventana'],
+    ['die Tür','la puerta'],['das Wörterbuch','el diccionario'],['die Pause','el recreo'],['die Lehrerin','la profesora']]},
+  verben: { name: 'Verben', words: [
+    ['sprechen','hablar'],['essen','comer'],['trinken','beber'],['wohnen','vivir'],['spielen','jugar'],
+    ['haben','tener'],['gehen','ir'],['machen','hacer'],['lesen','leer'],['schreiben','escribir'],
+    ['schlafen','dormir'],['lernen','aprender'],['arbeiten','trabajar'],['kaufen','comprar'],['sehen','ver'],
+    ['wollen','querer'],['können','poder'],['kommen','venir'],['rennen','correr'],['tanzen','bailar']]},
+  saetze: { name: 'Ganze Sätze', words: [
+    ['Ich heiße Pablo.','Me llamo Pablo.'],['Wie heißt du?','¿Cómo te llamas?'],['Wie geht es dir?','¿Qué tal? / ¿Cómo estás?'],
+    ['Mir geht es gut.','Estoy bien.'],['Ich bin vierzehn Jahre alt.','Tengo catorce años.'],['Woher kommst du?','¿De dónde eres?'],
+    ['Ich komme aus Deutschland.','Soy de Alemania.'],['Ich habe einen Hund.','Tengo un perro.'],
+    ['Ich spreche ein bisschen Spanisch.','Hablo un poco de español.'],['Wo ist die Toilette?','¿Dónde está el baño?'],
+    ['Ich mag Fußball.','Me gusta el fútbol.'],['Ich habe Hunger.','Tengo hambre.'],['Wie spät ist es?','¿Qué hora es?'],
+    ['Bis morgen!','¡Hasta mañana!'],['Ich verstehe nicht.','No entiendo.'],['Ich wohne in Berlin.','Vivo en Berlín.'],
+    ['Mein Hund hat meine Hausaufgaben gefressen.','Mi perro se comió mis deberes. / Mi perro se ha comido mis deberes.'],
+    ['Ich bin kein Pinguin.','No soy un pingüino.'],['Meine Katze spricht Spanisch.','Mi gato habla español. / Mi gata habla español.']]},
+};
+
+const DIRS = {
+  'de-es': { from: 0, to: 1, label: 'Auf Spanisch:', accents: ['á','é','í','ó','ú','ñ','ü','¿','¡'], keyHint: 'Mac: ⌥+E, dann Vokal = á · ⌥+N, dann n = ñ' },
+  'es-de': { from: 1, to: 0, label: 'Auf Deutsch:', accents: ['ä','ö','ü','ß'], keyHint: '' },
+};
+
+const SKINS = [
+  { id: 'falke',   name: 'Falke',   color: '#3ee0ff', wing: 18 },
+  { id: 'komet',   name: 'Komet',   color: '#5bf08a', wing: 22, need: '100 Abschüsse insgesamt', ok: s => s.totalKills >= 100 },
+  { id: 'nova',    name: 'Nova',    color: '#ff6bd6', wing: 26, fins: true, need: 'Highscore ab 3000', ok: s => s.hiscore >= 3000 },
+  { id: 'phantom', name: 'Phantom', color: '#ffc94a', wing: 24, fins: true, need: '30 Wörter sicher', ok: s => s.secure >= 30 },
+];
+
+const QUESTIONS_PER_ROUND = 6;
+const START_AMMO = 'HOLAAMIGO';
+const AMMO_PER_LETTER = 3;
+const ESCAPE_PENALTY = 5;
+const BOX_DAYS = [0, 0, 1, 3, 7, 14];
+const SECURE_BOX = 3;
+const BOSS_TIME = 25;
+const W = 900, H = 600;
+
+const $ = id => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d');
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('vb_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('vb_' + k, JSON.stringify(v)); } catch (e) {} },
+};
+
+let phase = 'menu';
+let G = null;
+let muted = store.get('muted', false);
+let leitner = store.get('leitner', {});
+const keys = {};
+const pointer = { active: false, x: W / 2 };
+
+let actx = null;
+function sound(freq, dur, type = 'square', vol = 0.04, slideTo = null) {
+  if (muted) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+  } catch (e) {}
+}
+
+const norm = s => s.toLowerCase().replace(/[¿?¡!.,;:"'«»]/g, '').replace(/\s+/g, ' ').trim();
+const deacc = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+const ARTICLE = /^(el|la|los|las|un|una|unos|unas|der|die|das|den|dem|ein|eine|einen) /;
+const alternatives = answer => answer.split('/').map(a => a.trim()).filter(Boolean);
+const lettersOf = s => s.toUpperCase().replace(/[^A-ZÁÉÍÓÚÑÜÄÖ]/g, '').split('');
+const toAmmo = letters => letters.flatMap(ch => Array(AMMO_PER_LETTER).fill(ch));
+const escapeHtml = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const shuffle = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+const promptOf = item => item[DIRS[G.dir].from];
+const answerOf = item => item[DIRS[G.dir].to];
+
+function levenshtein(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+function gradeOne(input, answer) {
+  const i = norm(input), a = norm(answer);
+  if (!i) return 'wrong';
+  if (i === a) return 'exact';
+  if (deacc(i) === deacc(a)) return 'accent';
+  const aBare = a.replace(ARTICLE, ''), iBare = i.replace(ARTICLE, '');
+  if (aBare !== a && deacc(iBare) === deacc(aBare)) return 'article';
+  const tolerance = a.length >= 15 ? 2 : a.length >= 5 ? 1 : 0;
+  if (levenshtein(deacc(i), deacc(a)) <= tolerance) return 'typo';
+  return 'wrong';
+}
+
+function gradeItem(input, item) {
+  const rank = { exact: 4, accent: 3, article: 2, typo: 1, wrong: 0 };
+  const alts = alternatives(answerOf(item));
+  let best = { grade: 'wrong', alt: alts[0] };
+  for (const alt of alts) {
+    const g = gradeOne(input, alt);
+    if (rank[g] > rank[best.grade]) best = { grade: g, alt };
+  }
+  // Tippfehler, der ein anderes Wort der Liste ergibt (hijo/hija), ist kein Tippfehler.
+  if (best.grade === 'typo' || best.grade === 'article') {
+    const other = G.answerIndex.get(norm(input));
+    if (other && other !== item) return { grade: 'wrong', alt: alts[0], other };
+  }
+  return best;
+}
+
+function parseCustom(text) {
+  return text.split('\n').map(line => {
+    const m = line.match(/^(.+?)\s*(?:=|;|\t)\s*(.+)$/);
+    return m ? [m[1].trim(), m[2].trim()] : null;
+  }).filter(Boolean);
+}
+
+// ---------- Leitner ----------
+const lkey = (dir, item) => dir + '|' + item[0] + '|' + item[1];
+
+function orderPool(pool, dir) {
+  const now = Date.now(), due = [], fresh = [], later = [];
+  for (const it of pool) {
+    const r = leitner[lkey(dir, it)];
+    if (!r) fresh.push(it); else if (r.due <= now) due.push(it); else later.push(it);
+  }
+  shuffle(due).sort((a, b) => leitner[lkey(dir, a)].box - leitner[lkey(dir, b)].box);
+  shuffle(later).sort((a, b) => leitner[lkey(dir, a)].due - leitner[lkey(dir, b)].due);
+  return [...due, ...shuffle(fresh), ...later];
+}
+
+function leitnerUpdate(item, grade) {
+  if (G.test) return;
+  const k = lkey(G.dir, item), r = leitner[k] || { box: 1, due: 0 };
+  if (grade === 'wrong') r.box = 1;
+  else if ((grade === 'exact' || grade === 'accent') && r.due <= Date.now()) r.box = Math.min(5, r.box + 1);
+  else return;
+  r.due = Date.now() + BOX_DAYS[r.box] * 86400000;
+  leitner[k] = r;
+  store.set('leitner', leitner);
+}
+
+const secureIn = (pool, dir) => pool.filter(it => (leitner[lkey(dir, it)] || { box: 0 }).box >= SECURE_BOX).length;
+const secureTotal = () => Object.values(leitner).filter(r => r.box >= SECURE_BOX).length;
+const stats = () => ({ totalKills: store.get('totalKills', 0), hiscore: store.get('hiscore', 0), secure: secureTotal() });
+const unlockedSkins = () => { const s = stats(); return SKINS.filter(k => !k.ok || k.ok(s)).map(k => k.id); };
+const currentSkin = () => SKINS.find(s => s.id === (G ? G.skin : store.get('skin', 'falke'))) || SKINS[0];
+
+// ---------- Menü ----------
+function menuSelection() {
+  const topics = [...document.querySelectorAll('#topics input:checked')].map(i => i.value);
+  const useCustom = $('useCustom').checked;
+  const dir = document.querySelector('input[name=dir]:checked').value;
+  let pool = topics.flatMap(k => LISTS[k].words);
+  if (useCustom) pool = pool.concat(parseCustom($('customList').value));
+  return { topics, useCustom, dir, pool };
+}
+
+function updateMenuProgress() {
+  const { pool, dir } = menuSelection();
+  $('progress').textContent = pool.length ? `Fortschritt: ${secureIn(pool, dir)} von ${pool.length} Wörtern sicher` : '';
+}
+
+function buildMenu() {
+  const selected = store.get('topics', ['familie', 'tiere']);
+  $('topics').innerHTML = Object.entries(LISTS).map(([k, l]) =>
+    `<label><input type="checkbox" value="${k}" ${selected.includes(k) ? 'checked' : ''}> ${l.name}</label>`).join('');
+  $('useCustom').checked = store.get('useCustom', false);
+  $('customList').value = store.get('custom', '');
+  $('customBox').classList.toggle('hidden', !$('useCustom').checked);
+  const dir = store.get('dir', 'de-es');
+  document.querySelector(`input[name=dir][value="${dir}"]`).checked = true;
+  const unlocked = unlockedSkins();
+  let skin = store.get('skin', 'falke');
+  if (!unlocked.includes(skin)) skin = 'falke';
+  $('ships').innerHTML = SKINS.map(s => unlocked.includes(s.id)
+    ? `<button type="button" data-skin="${s.id}" class="${s.id === skin ? 'sel' : ''}" style="color:${s.color}">${s.name}</button>`
+    : `<button type="button" disabled title="${s.need}">🔒 ${s.name} · ${s.need}</button>`).join('');
+  $('hiscore').textContent = 'Highscore: ' + store.get('hiscore', 0);
+  $('muteBtn').textContent = muted ? 'Ton: aus' : 'Ton: an';
+  updateMenuProgress();
+}
+
+function showPanel(id) {
+  for (const p of ['menu', 'quiz', 'over', 'pause', 'bossPanel']) $(p).classList.toggle('hidden', p !== id);
+}
+
+function banner(html, ms) {
+  return new Promise(res => {
+    const b = $('banner'); b.innerHTML = html; b.classList.remove('hidden');
+    setTimeout(() => { b.classList.add('hidden'); res(); }, ms);
+  });
+}
+
+function renderAccents(containerId, inputId) {
+  $(containerId).innerHTML = DIRS[G.dir].accents.map(c => `<button type="button" data-c="${c}" data-for="${inputId}">${c}</button>`).join('');
+}
+
+function startGame() {
+  const sel = menuSelection();
+  store.set('topics', sel.topics); store.set('useCustom', sel.useCustom); store.set('custom', $('customList').value); store.set('dir', sel.dir);
+  if (!sel.pool.length) { $('menuErr').textContent = 'Wähle mindestens ein Thema oder trage eigene Vokabeln ein.'; return; }
+  $('menuErr').textContent = '';
+  const skinBtn = document.querySelector('#ships button.sel');
+  G = {
+    dir: sel.dir, skin: skinBtn ? skinBtn.dataset.skin : 'falke', test: false,
+    round: 1, pool: sel.pool, queue: orderPool(sel.pool, sel.dir), ammo: toAmmo(START_AMMO.split('')),
+    score: 0, kills: 0, asked: 0, right: 0, exactStreak: 0, missed: new Map(), roundItems: [],
+    qIndex: 0, item: null, qMode: 'answer', secureAtStart: secureIn(sel.pool, sel.dir), unlockedAtStart: unlockedSkins(),
+    player: { x: W / 2, y: H - 50 }, bullets: [], enemies: [], parts: [], texts: [],
+    spawnLeft: 0, spawnT: 0, cooldown: 0, hintT: 0, combo: 0, shake: 0, flash: 0,
+    escapes: 0, waveTotal: 0, badWaves: 0, breather: false, bonus: false, bonusKills: 0, rush: false, boss: null,
+  };
+  G.answerIndex = new Map();
+  for (const it of sel.pool) for (const a of alternatives(answerOf(it))) G.answerIndex.set(norm(a), it);
+  startQuiz();
+}
+
+// ---------- Vokabelrunde ----------
+function startQuiz() {
+  phase = 'quiz';
+  G.qIndex = 0;
+  G.roundItems = [];
+  showPanel('quiz');
+  renderAccents('qAccents', 'qInput');
+  $('qLabel').textContent = DIRS[G.dir].label;
+  $('qKeyHint').textContent = DIRS[G.dir].keyHint;
+  nextQuestion();
+}
+
+function nextQuestion() {
+  if (G.qIndex >= QUESTIONS_PER_ROUND) return endQuiz();
+  if (!G.queue.length) G.queue = orderPool(G.pool, G.dir);
+  G.item = G.queue.shift();
+  G.qMode = 'answer';
+  $('qRound').textContent = `Runde ${G.round} · Frage ${G.qIndex + 1}/${QUESTIONS_PER_ROUND}`;
+  $('qPrompt').textContent = promptOf(G.item);
+  $('qFb').textContent = ''; $('qFb').className = 'fb';
+  $('qInput').value = '';
+  $('qSkip').classList.remove('hidden');
+  updateAmmoLabel();
+  $('qInput').focus();
+}
+
+function updateAmmoLabel() { $('qAmmo').textContent = '⚡ ' + G.ammo.length + ' Schuss'; }
+
+function shakeInput(id) { const i = $(id); i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); }
+
+function wrongText(res, input, item) {
+  const correct = `<b>${escapeHtml(answerOf(item))}</b>`;
+  return res.other
+    ? `"${escapeHtml(input.trim())}" heißt ${escapeHtml(promptOf(res.other))}. Gesucht war: ${correct}`
+    : `Leider falsch. Richtig ist: ${correct}`;
+}
+
+function submitAnswer(skip = false) {
+  if (phase !== 'quiz') return;
+  const input = $('qInput').value;
+
+  if (G.qMode === 'practice') {
+    if (alternatives(answerOf(G.item)).some(a => deacc(norm(input)) === deacc(norm(a)))) {
+      sound(520, 0.1, 'triangle');
+      G.qIndex++; nextQuestion();
+    } else shakeInput('qInput');
+    return;
+  }
+  if (G.qMode !== 'answer') return;
+  if (!skip && !input.trim()) return;
+  if (!skip && norm(input) === 'los pollos hermanos') {
+    G.test = true;
+    phase = 'transition'; showPanel(null); $('qInput').blur();
+    banner('TESTMODUS<small>unbegrenzte Munition · kein Highscore · kein Lernfortschritt · Esc = Pause</small>', 2200).then(launchWave);
+    return;
+  }
+
+  const res = skip ? { grade: 'wrong', alt: alternatives(answerOf(G.item))[0] } : gradeItem(input, G.item);
+  const g = res.grade, alt = res.alt, fb = $('qFb');
+  G.asked++;
+  G.roundItems.push(G.item);
+  leitnerUpdate(G.item, g);
+
+  if (g === 'wrong') {
+    G.exactStreak = 0;
+    G.missed.set(promptOf(G.item), answerOf(G.item));
+    G.queue.splice(Math.min(G.queue.length, 2 + (Math.random() * 3 | 0)), 0, G.item);
+    fb.className = 'fb bad';
+    fb.innerHTML = wrongText(res, input, G.item) + '<br>Tippe es einmal ab, dann geht es weiter.';
+    sound(180, 0.3, 'sawtooth', 0.05, 90);
+    G.qMode = 'practice';
+    $('qSkip').classList.add('hidden');
+    $('qInput').value = ''; $('qInput').focus();
+    return;
+  }
+
+  G.right++;
+  let letters = lettersOf(alt);
+  if (g === 'article' || g === 'typo') letters = letters.slice(0, Math.ceil(letters.length / 2));
+  let ammo = toAmmo(letters), stars = 0;
+  if (g === 'exact') {
+    G.exactStreak++;
+    stars = G.exactStreak % 3 === 0 ? 9 : 3;
+  } else G.exactStreak = 0;
+  ammo = ammo.concat(Array(stars).fill('★'));
+  const msg = {
+    exact: '¡Perfecto! Fehlerfrei',
+    accent: `Richtig! Achte auf die Akzente: <b>${escapeHtml(alt)}</b>`,
+    article: `Fast! Mit dem richtigen Artikel: <b>${escapeHtml(alt)}</b> (halbe Munition)`,
+    typo: `Fast! Richtig geschrieben: <b>${escapeHtml(alt)}</b> (halbe Munition)`,
+  }[g];
+  fb.className = 'fb ' + (g === 'exact' || g === 'accent' ? 'good' : 'warn');
+  fb.innerHTML = `${msg} <span class="ammo">+${ammo.length} Schuss</span>` +
+    (stars === 9 ? ' · 3× fehlerfrei in Folge: 9 ★ Superschüsse!' : stars ? ' · inkl. 3 ★ Superschüsse' : '');
+  sound(660, 0.08, 'triangle'); setTimeout(() => sound(990, 0.12, 'triangle'), 90);
+  G.qMode = 'wait';
+  flyLetters(stars ? letters.concat(['★']) : letters);
+  setTimeout(() => { G.ammo.push(...ammo); updateAmmoLabel(); }, 750);
+  setTimeout(() => { G.qIndex++; nextQuestion(); }, g === 'exact' ? 1200 : 2200);
+}
+
+function flyLetters(letters) {
+  const wrapR = $('wrap').getBoundingClientRect(), from = $('qInput').getBoundingClientRect(), to = $('qAmmo').getBoundingClientRect();
+  letters.forEach((ch, i) => {
+    const s = document.createElement('span');
+    s.className = 'fly'; s.textContent = ch;
+    const x0 = from.left - wrapR.left + 16 + i * 20, y0 = from.top - wrapR.top + 6;
+    s.style.left = x0 + 'px'; s.style.top = y0 + 'px';
+    s.style.transitionDelay = (i * 35) + 'ms';
+    $('fx').appendChild(s);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      s.style.transform = `translate(${to.left - wrapR.left + 20 - x0}px, ${to.top - wrapR.top - y0}px) scale(.5)`;
+      s.style.opacity = '0.2';
+    }));
+    setTimeout(() => s.remove(), 900 + i * 35);
+  });
+}
+
+function endQuiz() {
+  phase = 'transition';
+  showPanel(null);
+  $('qInput').blur();
+  launchWave();
+}
+
+// ---------- Ballerrunde ----------
+// Pro Runde steigt immer nur ein Wert: abwechselnd Anzahl, Tempo, Gegner-Mix.
+function waveConfig(r) {
+  let count = 14, speed = 38, mix = 0;
+  for (let i = 2; i <= r; i++) {
+    if (i % 3 === 2) count = Math.min(44, count + 4);
+    else if (i % 3 === 0) speed += 5;
+    else mix++;
+  }
+  return {
+    count, speed,
+    interval: Math.max(0.4, 18 / count),
+    tankChance: r >= 3 ? Math.min(0.3, 0.12 + mix * 0.05) : 0,
+    fastChance: r >= 5 ? Math.min(0.3, 0.1 + (mix - 1) * 0.05) : 0,
+  };
+}
+
+async function launchWave() {
+  phase = 'transition';
+  G.bonus = G.round % 4 === 0;
+  let text;
+  if (G.bonus) {
+    text = '★ Bonuswelle ★<small>Keine Verluste · jeder Treffer +2 Schuss · alle erwischt = Perfect-Bonus</small>';
+  } else {
+    const extra = [];
+    if (G.round === 3) extra.push('Neu: Panzergleiter, brauchen 2 Treffer');
+    if (G.round === 5) extra.push('Neu: Zickzack-Gleiter, schnell und wendig');
+    if (G.breather) extra.push('Verschnaufpause: diese Welle ist kleiner');
+    text = `⚠ Angriff! Welle ${G.round}` + (extra.length ? `<small>${extra.join(' · ')}</small>` : '');
+  }
+  sound(300, 0.4, 'sawtooth', 0.04, 600);
+  await banner(text, extraDelay(text));
+  startWave();
+}
+const extraDelay = text => text.includes('<small>') ? 2300 : 1600;
+
+function startWave() {
+  const cfg = waveConfig(G.round);
+  G.cfg = cfg;
+  G.bullets = []; G.enemies = [];
+  G.escapes = 0; G.bonusKills = 0; G.rush = false;
+  if (G.bonus) {
+    G.spawnLeft = 20; G.train = 0;
+  } else {
+    G.spawnLeft = G.breather ? Math.round(cfg.count * 0.75) : cfg.count;
+    G.breather = false;
+  }
+  G.waveTotal = G.spawnLeft;
+  G.spawnT = 0.6;
+  G.hintT = G.round === 1 ? 5 : 0;
+  phase = 'shoot';
+}
+
+function spawnEnemy() {
+  const c = G.cfg, roll = Math.random();
+  let type = 'normal';
+  if (roll < c.tankChance) type = 'tank'; else if (roll < c.tankChance + c.fastChance) type = 'fast';
+  const def = {
+    normal: { hp: 1, r: 18, color: '#ff5d73', vy: c.speed, amp: 30 },
+    fast:   { hp: 1, r: 15, color: '#ffb020', vy: c.speed * 1.6, amp: 55 },
+    tank:   { hp: 2, r: 24, color: '#b07cff', vy: c.speed * 0.7, amp: 15 },
+  }[type];
+  const baseX = 60 + Math.random() * (W - 120);
+  G.enemies.push({ ...def, type, maxHp: def.hp, baseX, x: baseX, y: -70, t: Math.random() * 6, vy: def.vy + Math.random() * 15, flashT: 0 });
+}
+
+// Galaga-artige Bonuswelle: Fünferzüge fliegen quer durchs Bild.
+function spawnBonus() {
+  if (G.train % 5 === 0) { G.trainDir = Math.random() < 0.5 ? 1 : -1; G.trainY = 90 + Math.random() * 220; }
+  G.train++;
+  const vx = G.trainDir * (170 + G.round * 6);
+  G.enemies.push({ type: 'bonus', hp: 1, maxHp: 1, r: 16, color: '#5bf08a', x: G.trainDir > 0 ? -30 : W + 30, baseY: G.trainY, y: G.trainY, vx, t: 0, flashT: 0 });
+}
+
+function explode(x, y, color, n = 18) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 200;
+    G.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.6 + Math.random() * 0.4, color });
+  }
+}
+
+function floatText(x, y, text, color, sub) { G.texts.push({ x, y, text, color, sub, life: 1.3 }); }
+const comboMult = () => 1 + Math.min(3, Math.floor(G.combo / 5) * 0.5);
+
+function movePlayer(dt) {
+  const p = G.player;
+  let dx = 0;
+  if (keys.ArrowLeft || keys.KeyA) dx -= 1;
+  if (keys.ArrowRight || keys.KeyD) dx += 1;
+  if (dx) p.x += dx * 430 * dt;
+  else if (pointer.active) p.x += Math.max(-430 * dt, Math.min(430 * dt, pointer.x - p.x));
+  p.x = Math.max(24, Math.min(W - 24, p.x));
+}
+
+function updateBullets(dt) {
+  for (const b of G.bullets) {
+    b.y -= 750 * dt;
+    if (b.x !== undefined && b.tx !== undefined) b.x += (b.tx - b.x) * Math.min(1, dt * 6);
+  }
+}
+
+function killEnemy(e) {
+  G.kills++;
+  const typeMult = e.type === 'tank' ? 2 : e.type === 'fast' ? 1.5 : 1;
+  const pts = Math.round(10 * G.round * typeMult * comboMult());
+  G.score += pts;
+  explode(e.x, e.y, e.color);
+  const word = G.roundItems.length ? alternatives(answerOf(G.roundItems[Math.random() * G.roundItems.length | 0]))[0] : null;
+  floatText(e.x, e.y, '+' + pts, '#5bf08a', word);
+  sound(140 + Math.random() * 40, 0.3, 'sawtooth', 0.05, 40);
+  if (e.type === 'tank') G.shake = 0.25;
+  if (e.type === 'bonus') { G.bonusKills++; const l = lettersOf(word || 'OLE'); G.ammo.push(l[0], l[l.length - 1]); }
+}
+
+function updateShoot(dt) {
+  movePlayer(dt);
+  const p = G.player;
+
+  G.cooldown -= dt;
+  if ((keys.Space || pointer.active) && G.cooldown <= 0 && (G.test || G.ammo.length)) {
+    const ch = G.test ? 'LOSPOLLOSHERMANOS'[Math.random() * 17 | 0] : G.ammo.shift();
+    G.bullets.push({ x: p.x, y: p.y - 22, ch, dmg: ch === '★' ? 2 : 1 });
+    G.cooldown = 0.17;
+    sound(ch === '★' ? 1200 : 860 + Math.random() * 60, 0.07, 'square', 0.025, 440);
+  }
+
+  G.spawnT -= dt;
+  if (G.spawnLeft > 0 && G.spawnT <= 0) {
+    if (G.bonus) { spawnBonus(); G.spawnT = G.train % 5 === 0 ? 1.4 : 0.28; }
+    else { spawnEnemy(); G.spawnT = G.cfg.interval * (0.6 + Math.random() * 0.8); }
+    G.spawnLeft--;
+  }
+
+  if (!G.bonus && !G.rush && G.spawnLeft === 0 && G.enemies.length > 0 && G.enemies.length <= 3) {
+    G.rush = true;
+    for (const e of G.enemies) e.vy *= 1.4;
+    sound(200, 0.5, 'sawtooth', 0.03, 400);
+  }
+
+  updateBullets(dt);
+  for (const e of G.enemies) {
+    e.t += dt; e.flashT -= dt;
+    if (e.type === 'bonus') { e.x += e.vx * dt; e.y = e.baseY + Math.sin(e.t * 3) * 40; continue; }
+    e.y += e.vy * dt;
+    e.x = Math.max(e.r, Math.min(W - e.r, e.baseX + Math.sin(e.t * (e.type === 'fast' ? 2.6 : 1.4)) * e.amp));
+  }
+
+  for (const b of G.bullets) {
+    for (const e of G.enemies) {
+      if (e.hp > 0 && !b.hit && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 8) {
+        b.hit = true; e.hp -= b.dmg; e.flashT = 0.08; G.combo++;
+        if (e.hp <= 0) killEnemy(e);
+        else { explode(b.x, b.y, '#fff', 5); sound(400, 0.05, 'square', 0.03); }
+      }
+    }
+    if (!b.hit && b.y < -20) { b.gone = true; G.combo = 0; }
+  }
+  for (const e of G.enemies) {
+    if (e.hp <= 0) continue;
+    if (e.type === 'bonus' && (e.x < -60 || e.x > W + 60)) { e.hp = 0; continue; }
+    if (e.type !== 'bonus' && e.y > H + 20) {
+      e.hp = 0; G.escapes++;
+      const lost = G.test ? 0 : G.ammo.splice(0, ESCAPE_PENALTY).length;
+      floatText(e.x, H - 90, lost ? `-${lost} Schuss` : 'durch!', '#ff5d73');
+      G.shake = 0.3; G.flash = 0.4;
+      sound(220, 0.25, 'triangle', 0.05, 110);
+    }
+  }
+  G.bullets = G.bullets.filter(b => !b.hit && !b.gone);
+  G.enemies = G.enemies.filter(e => e.hp > 0);
+
+  G.hintT -= dt;
+  if (!G.enemies.length && !G.spawnLeft) return waveCleared();
+  if (!G.test && !G.bonus && !G.ammo.length && !G.bullets.length) return gameOver();
+}
+
+async function waveCleared() {
+  phase = 'transition';
+  let text;
+  if (G.bonus) {
+    const perfect = G.bonusKills === G.waveTotal;
+    if (perfect) { G.score += 500 * G.round; G.ammo.push(...toAmmo(lettersOf('PERFECTO'))); }
+    text = perfect ? `PERFECT! ${G.bonusKills}/${G.waveTotal}<small>+${500 * G.round} Punkte · +24 Schuss</small>`
+                   : `Bonuswelle: ${G.bonusKills}/${G.waveTotal} erwischt`;
+  } else {
+    G.score += 50 * G.round;
+    if (G.escapes / G.waveTotal > 0.25) G.badWaves++; else G.badWaves = 0;
+    if (G.badWaves >= 2) { G.breather = true; G.badWaves = 0; }
+    text = `Welle ${G.round} geschafft! +${50 * G.round}`;
+  }
+  sound(523, 0.12, 'triangle'); setTimeout(() => sound(659, 0.12, 'triangle'), 120); setTimeout(() => sound(784, 0.2, 'triangle'), 240);
+  await banner(text, 1700);
+  if (!G.bonus && !G.test && G.round >= 2 && G.roundItems.length) startBoss();
+  else nextRound();
+}
+
+function nextRound() {
+  G.round++;
+  if (G.test) launchWave(); else startQuiz();
+}
+
+// ---------- Boss ----------
+function startBoss() {
+  const items = G.roundItems;
+  const item = G.round >= 4
+    ? items.slice().sort((a, b) => answerOf(b).length - answerOf(a).length)[0]
+    : items[Math.random() * items.length | 0];
+  G.boss = { item, x: W / 2, y: -90, t: 0, time: BOSS_TIME, state: 'enter', hp: 1, flashT: 0, shots: [] };
+  G.bullets = []; G.enemies = [];
+  phase = 'boss';
+  sound(90, 1.2, 'sawtooth', 0.06, 60);
+}
+
+function showBossPanel() {
+  showPanel('bossPanel');
+  renderAccents('bAccents', 'bInput');
+  $('bPrompt').textContent = promptOf(G.boss.item);
+  $('bInput').value = ''; $('bFb').textContent = ''; $('bFb').className = 'fb';
+  $('bInput').focus();
+}
+
+function bossSubmit() {
+  const B = G.boss;
+  if (!B || B.state !== 'wait') return;
+  const input = $('bInput').value;
+  if (!input.trim()) return;
+  const res = gradeItem(input, B.item);
+  leitnerUpdate(B.item, res.grade);
+  if (res.grade === 'wrong') return bossFail(res, input);
+  B.state = 'firing';
+  B.exact = res.grade === 'exact';
+  B.shots = lettersOf(res.alt);
+  B.shotT = 0;
+  $('bInput').blur();
+  const fb = $('bFb');
+  fb.className = 'fb good';
+  fb.innerHTML = res.grade === 'exact' ? '¡Perfecto! Feuer frei!' : `Richtig: <b>${escapeHtml(res.alt)}</b> · Feuer frei!`;
+}
+
+function bossFail(res, input) {
+  const B = G.boss;
+  B.state = 'leaving';
+  B.time = 0;
+  G.missed.set(promptOf(B.item), answerOf(B.item));
+  const fb = $('bFb');
+  fb.className = 'fb bad';
+  fb.innerHTML = res ? wrongText(res, input, B.item).replace('Leider falsch. ', 'Der Boss entkommt. ') : `Zeit abgelaufen. Richtig ist: <b>${escapeHtml(answerOf(B.item))}</b>`;
+  $('bInput').blur();
+  sound(150, 0.6, 'sawtooth', 0.05, 70);
+}
+
+function updateBoss(dt) {
+  const B = G.boss;
+  B.t += dt; B.flashT -= dt;
+  if (B.state === 'enter') {
+    B.y += 120 * dt;
+    if (B.y >= 170) { B.y = 170; B.state = 'wait'; showBossPanel(); }
+  } else if (B.state === 'wait') {
+    B.x = W / 2 + Math.sin(B.t * 0.8) * 120;
+    B.time -= dt;
+    $('bBar').style.width = Math.max(0, B.time / BOSS_TIME * 100) + '%';
+    $('bTime').textContent = Math.ceil(Math.max(0, B.time)) + ' s';
+    if (B.time <= 0) bossFail(null, '');
+  } else if (B.state === 'firing') {
+    B.shotT -= dt;
+    if (B.shots.length && B.shotT <= 0) {
+      G.bullets.push({ x: G.player.x, y: G.player.y - 22, ch: B.shots.shift(), dmg: 0, tx: B.x });
+      B.shotT = 0.07;
+      sound(900, 0.05, 'square', 0.025, 500);
+    }
+    for (const b of G.bullets) b.tx = B.x;
+    updateBullets(dt);
+    for (const b of G.bullets) if (b.y <= B.y + 30) { b.hit = true; B.flashT = 0.06; explode(b.x, b.y, '#fff', 4); }
+    G.bullets = G.bullets.filter(b => !b.hit);
+    if (!B.shots.length && !G.bullets.length) bossDefeated();
+  } else if (B.state === 'leaving') {
+    B.time -= dt;
+    if (B.time < -2.5) { B.y -= 260 * dt; if (B.y < -120) endBoss(); }
+  }
+}
+
+async function bossDefeated() {
+  const B = G.boss;
+  B.state = 'dead';
+  const pts = 100 * G.round * (B.exact ? 2 : 1);
+  const ammo = toAmmo(lettersOf(alternatives(answerOf(B.item))[0]));
+  G.score += pts; G.ammo.push(...ammo); G.kills++;
+  for (let i = 0; i < 4; i++) explode(B.x + (Math.random() - 0.5) * 60, B.y + (Math.random() - 0.5) * 40, i % 2 ? '#ff3355' : '#ffc94a', 30);
+  G.shake = 0.6;
+  sound(80, 0.8, 'sawtooth', 0.07, 30);
+  showPanel(null);
+  phase = 'transition';
+  await banner(`Boss besiegt!<small>+${pts} Punkte · +${ammo.length} Schuss</small>`, 2000);
+  G.boss = null;
+  nextRound();
+}
+
+function endBoss() {
+  G.boss = null;
+  showPanel(null);
+  nextRound();
+}
+
+// ---------- Ende ----------
+function gameOver() {
+  phase = 'over';
+  const old = stats();
+  if (!G.test) {
+    store.set('hiscore', Math.max(old.hiscore, G.score));
+    store.set('totalKills', old.totalKills + G.kills);
+  }
+  const best = store.get('hiscore', 0);
+  const isNew = !G.test && G.score > old.hiscore;
+  $('overTitle').textContent = G.test ? 'Testmodus beendet' : 'Munition leer – Game Over';
+  $('overStats').innerHTML = `
+    <span>Punkte: <b>${G.score}</b>${isNew ? ' · neuer Highscore!' : ''}</span><span>Highscore: <b>${best}</b></span>
+    <span>Erreichte Welle: <b>${G.round}</b></span><span>Abschüsse: <b>${G.kills}</b></span>
+    <span>Vokabeln richtig: <b>${G.right}/${G.asked}</b></span>${G.test ? '<span>kein Highscore im Testmodus</span>' : ''}`;
+  const sec = secureIn(G.pool, G.dir), diff = sec - G.secureAtStart;
+  $('overProgress').textContent = `Fortschritt: ${sec} von ${G.pool.length} Wörtern sicher` + (diff > 0 ? ` (+${diff} heute)` : '');
+  const newSkins = unlockedSkins().filter(id => !G.unlockedAtStart.includes(id));
+  $('overUnlock').textContent = newSkins.length ? 'Neues Raumschiff freigeschaltet: ' + newSkins.map(id => SKINS.find(s => s.id === id).name).join(', ') : '';
+  $('missedBox').innerHTML = G.missed.size
+    ? `<p>Diese Vokabeln solltest du noch üben:</p><ul class="missed">${[...G.missed].map(([q, a]) => `<li>${escapeHtml(q)} = <b>${escapeHtml(a)}</b></li>`).join('')}</ul>`
+    : (G.asked ? '<p>Keine Vokabel falsch. Stark!</p>' : '');
+  showPanel('over');
+  sound(300, 0.6, 'sawtooth', 0.05, 60);
+}
+
+function togglePause() {
+  if (phase === 'shoot') { phase = 'pause'; showPanel('pause'); }
+  else if (phase === 'pause') { phase = 'shoot'; showPanel(null); last = performance.now(); }
+}
+
+// ---------- Zeichnen ----------
+const stars = Array.from({ length: 130 }, () => ({ x: Math.random() * W, y: Math.random() * H, z: 0.2 + Math.random() * 0.8 }));
+
+function drawShip(x, y, skin) {
+  const w = skin.wing;
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(62,224,255,.25)';
+  ctx.beginPath(); ctx.ellipse(0, 18, 8, 6 + Math.random() * 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = skin.color; ctx.shadowColor = skin.color; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(w, 14); ctx.lineTo(6, 9); ctx.lineTo(0, 16); ctx.lineTo(-6, 9); ctx.lineTo(-w, 14); ctx.closePath(); ctx.fill();
+  if (skin.fins) { ctx.fillRect(-w - 2, 2, 4, 16); ctx.fillRect(w - 2, 2, 4, 16); }
+  ctx.shadowBlur = 0; ctx.fillStyle = '#e8ecff'; ctx.beginPath(); ctx.ellipse(0, -4, 4, 7, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawGlider(e, scale) {
+  ctx.save(); ctx.translate(e.x, e.y); const s = (scale || e.r / 18); ctx.scale(s, s);
+  if (e.type === 'bonus') ctx.rotate(e.vx > 0 ? -Math.PI / 2 : Math.PI / 2);
+  else ctx.rotate(Math.cos(e.t * 1.4) * 0.15);
+  const damaged = e.maxHp > 1 && e.hp < e.maxHp;
+  const color = e.flashT > 0 ? '#ffffff' : damaged ? '#6b4fa0' : e.color;
+  ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.moveTo(0, 16); ctx.lineTo(24, -10); ctx.lineTo(9, -5); ctx.lineTo(0, -14); ctx.lineTo(-9, -5); ctx.lineTo(-24, -10); ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.beginPath(); ctx.ellipse(0, 1, 3.5, 6, 0, 0, Math.PI * 2); ctx.fill();
+  if (e.maxHp > 1 && !damaged) {
+    ctx.strokeStyle = '#e8ecff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, 27, 0, Math.PI * 2); ctx.stroke();
+  }
+  if (damaged) {
+    ctx.strokeStyle = '#ffd0ff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-14, -7); ctx.lineTo(-6, -1); ctx.lineTo(-9, 5); ctx.moveTo(12, -8); ctx.lineTo(6, -2); ctx.lineTo(10, 3); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBoss(B) {
+  drawGlider({ x: B.x, y: B.y, t: B.t, type: 'boss', color: '#ff3355', maxHp: 1, hp: 1, flashT: B.flashT }, 3);
+  ctx.fillStyle = '#ffc94a'; ctx.font = '800 16px system-ui, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('BOSS', B.x, B.y - 52);
+}
+
+function drawHud() {
+  ctx.fillStyle = 'rgba(7,11,26,.6)'; ctx.fillRect(0, 0, W, 34);
+  ctx.font = '600 17px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#8f9ac4'; ctx.textAlign = 'left';
+  ctx.fillText(G.bonus ? `Bonuswelle · ${G.bonusKills}/${G.waveTotal}` : `Welle ${G.round} · Gegner ${G.enemies.length + G.spawnLeft}`, 14, 17);
+  ctx.fillStyle = '#e8ecff'; ctx.textAlign = 'center';
+  const mult = comboMult();
+  ctx.fillText(`Punkte ${G.score}` + (mult > 1 ? `  ·  Kombo x${mult}` : ''), W / 2, 17);
+  ctx.textAlign = 'right';
+  if (G.test) {
+    ctx.fillStyle = '#ffc94a'; ctx.fillText('⚡ ∞ Schuss', W - 14, 17);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#ff6bd6'; ctx.font = '700 14px system-ui, sans-serif'; ctx.fillText('TESTMODUS', 14, 50);
+  } else {
+    const low = G.ammo.length < 15;
+    ctx.fillStyle = low ? '#ff5d73' : '#ffc94a'; ctx.fillText(`⚡ ${G.ammo.length} Schuss`, W - 14, 17);
+    if (low && !G.bonus && Math.floor(performance.now() / 300) % 2) {
+      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillText('Munition knapp!', W - 14, 50);
+    }
+    ctx.textAlign = 'left'; ctx.font = '700 15px ui-monospace, monospace'; ctx.fillStyle = '#ffc94a';
+    ctx.fillText('Nächste: ' + G.ammo.slice(0, 14).join(' ') + (G.ammo.length > 14 ? ' …' : ''), 14, H - 14);
+  }
+  if (G.rush) { ctx.textAlign = 'center'; ctx.fillStyle = '#ff5d73'; ctx.font = '800 18px system-ui, sans-serif'; ctx.fillText('Endspurt!', W / 2, 52); }
+}
+
+function draw(dt) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#070b1a'; ctx.fillRect(0, 0, W, H);
+  if (G && G.shake > 0 && phase !== 'pause') {
+    G.shake -= dt;
+    const m = G.shake * 30;
+    ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
+  }
+  const speed = phase === 'shoot' ? (G && G.rush ? 220 : 120) : 35;
+  for (const s of stars) {
+    if (phase !== 'pause') { s.y += s.z * speed * dt; if (s.y > H) { s.y = 0; s.x = Math.random() * W; } }
+    ctx.fillStyle = `rgba(200,210,255,${s.z})`; ctx.fillRect(s.x, s.y, s.z * 2.2, s.z * 2.2);
+  }
+  if (!G) return;
+  const frozen = phase === 'pause';
+
+  for (const p of G.parts) {
+    if (!frozen) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
+    ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 3, 3);
+  }
+  ctx.globalAlpha = 1; G.parts = G.parts.filter(p => p.life > 0);
+
+  if (['shoot', 'transition', 'over', 'pause', 'boss'].includes(phase)) {
+    for (const e of G.enemies) {
+      if (e.type !== 'bonus' && e.y < 0 && Math.floor(performance.now() / 150) % 2) {
+        ctx.fillStyle = e.color; ctx.beginPath(); ctx.moveTo(e.x - 8, 40); ctx.lineTo(e.x + 8, 40); ctx.lineTo(e.x, 52); ctx.closePath(); ctx.fill();
+      }
+      drawGlider(e);
+    }
+    if (G.boss && G.boss.state !== 'dead') drawBoss(G.boss);
+    ctx.font = '800 20px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const b of G.bullets) {
+      ctx.shadowColor = '#ffc94a'; ctx.shadowBlur = 10; ctx.fillStyle = b.ch === '★' ? '#fff27a' : '#ffc94a';
+      ctx.fillText(b.ch, b.x, b.y);
+    }
+    ctx.shadowBlur = 0;
+    if (phase !== 'over') drawShip(G.player.x, G.player.y, currentSkin());
+    for (const t of G.texts) {
+      if (!frozen) { t.y -= 40 * dt; t.life -= dt; }
+      ctx.globalAlpha = Math.max(0, Math.min(1, t.life));
+      ctx.fillStyle = t.color; ctx.font = '700 18px system-ui, sans-serif'; ctx.fillText(t.text, t.x, t.y);
+      if (t.sub) { ctx.fillStyle = '#3ee0ff'; ctx.font = '600 14px system-ui, sans-serif'; ctx.fillText(t.sub, t.x, t.y + 18); }
+    }
+    ctx.globalAlpha = 1; G.texts = G.texts.filter(t => t.life > 0);
+    if (phase === 'shoot' || phase === 'pause') drawHud();
+    if (phase === 'shoot' && G.hintT > 0) {
+      ctx.fillStyle = '#e8ecff'; ctx.font = '600 20px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('← → oder A/D bewegen · Leertaste feuern · Esc = Pause', W / 2, H / 2 + 60);
+      ctx.fillStyle = '#8f9ac4'; ctx.font = '16px system-ui, sans-serif';
+      ctx.fillText(`Jeder Schuss kostet einen Buchstaben. Gleiter, die durchkommen, klauen ${ESCAPE_PENALTY} Schuss.`, W / 2, H / 2 + 90);
+    }
+  }
+  if (G.flash > 0) {
+    if (!frozen) G.flash -= dt;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.strokeStyle = `rgba(255,60,90,${Math.max(0, G.flash)})`; ctx.lineWidth = 14; ctx.strokeRect(0, 0, W, H);
+  }
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (phase === 'shoot') updateShoot(dt);
+  else if (phase === 'boss') updateBoss(dt);
+  draw(dt);
+  requestAnimationFrame(loop);
+}
+
+// ---------- Eingaben ----------
+document.addEventListener('keydown', e => {
+  if (phase === 'shoot' && ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+  if (phase !== 'boss') keys[e.code] = true;
+  if (e.code === 'Escape' || (e.code === 'KeyP' && phase === 'shoot')) { togglePause(); return; }
+  if (e.key === 'Enter') {
+    if (phase === 'quiz') { e.preventDefault(); submitAnswer(); }
+    else if (phase === 'boss') { e.preventDefault(); bossSubmit(); }
+    else if (phase === 'menu' && document.activeElement !== $('customList')) startGame();
+    else if (phase === 'over') startGame();
+  }
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; pointer.active = false; if (phase === 'shoot') togglePause(); });
+
+function pointerPos(e) { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) * W / r.width; }
+cv.addEventListener('pointerdown', e => { if (phase === 'shoot') { pointer.active = true; pointer.x = pointerPos(e); } });
+cv.addEventListener('pointermove', e => { if (pointer.active) pointer.x = pointerPos(e); });
+window.addEventListener('pointerup', () => { pointer.active = false; });
+
+for (const id of ['qAccents', 'bAccents']) {
+  $(id).addEventListener('mousedown', e => e.preventDefault());
+  $(id).addEventListener('click', e => {
+    const c = e.target.dataset.c; if (!c) return;
+    const i = $(e.target.dataset.for), s = i.selectionStart, en = i.selectionEnd;
+    i.value = i.value.slice(0, s) + c + i.value.slice(en); i.focus(); i.setSelectionRange(s + 1, s + 1);
+  });
+}
+for (const id of ['qInput', 'bInput']) $(id).addEventListener('input', () => sound(1500 + Math.random() * 300, 0.02, 'square', 0.008));
+
+$('qOk').addEventListener('click', () => submitAnswer());
+$('qSkip').addEventListener('click', () => submitAnswer(true));
+$('startBtn').addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
+$('resumeBtn').addEventListener('click', togglePause);
+$('quitBtn').addEventListener('click', () => { if (G.test) toMenu(); else gameOver(); });
+$('menuBtn').addEventListener('click', toMenu);
+function toMenu() { phase = 'menu'; G = null; buildMenu(); showPanel('menu'); }
+$('useCustom').addEventListener('change', () => { $('customBox').classList.toggle('hidden', !$('useCustom').checked); updateMenuProgress(); });
+$('topics').addEventListener('change', updateMenuProgress);
+$('customList').addEventListener('input', updateMenuProgress);
+for (const r of document.querySelectorAll('input[name=dir]')) r.addEventListener('change', updateMenuProgress);
+$('ships').addEventListener('click', e => {
+  const id = e.target.dataset.skin; if (!id) return;
+  store.set('skin', id);
+  for (const b of document.querySelectorAll('#ships button')) b.classList.toggle('sel', b.dataset.skin === id);
+});
+$('muteBtn').addEventListener('click', () => { muted = !muted; store.set('muted', muted); $('muteBtn').textContent = muted ? 'Ton: aus' : 'Ton: an'; });
+
+buildMenu();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
