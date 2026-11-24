@@ -461,6 +461,7 @@ function startGame() {
   G = {
     dir: sel.dir, skin: skinBtn ? skinBtn.dataset.skin : 'falke', test: false,
     round: 1, pool: sel.pool, queue: orderPool(sel.pool, sel.dir), ammo: toAmmo(START_AMMO.split('')), hull: HULL,
+    killsSaved: 0, hiscoreAtStart: store.get('hiscore', 0),
     score: 0, kills: 0, asked: 0, right: 0, exactStreak: 0, missed: new Map(), roundItems: [],
     item: null, qMode: 'answer', secureAtStart: secureIn(sel.pool, sel.dir), unlockedAtStart: unlockedSkins(),
     player: { x: W / 2, y: H - 50 }, bullets: [], enemies: [], parts: [], texts: [],
@@ -470,6 +471,7 @@ function startGame() {
   };
   G.answerIndex = new Map();
   for (const it of sel.pool) for (const a of alternatives(answerOf(it))) G.answerIndex.set(norm(a), it);
+  showPanel(null);
   launchWave();
 }
 
@@ -855,6 +857,7 @@ function updateShoot(dt) {
 
 async function waveCleared() {
   phase = 'transition';
+  saveStats();
   G.drops = [];
   let text;
   if (G.bonus) {
@@ -984,15 +987,19 @@ function endBoss() {
 }
 
 // ---------- Ende ----------
+function saveStats() {
+  if (!G || G.test) return;
+  const s = stats();
+  store.set('hiscore', Math.max(s.hiscore, G.score));
+  store.set('totalKills', s.totalKills + G.kills - G.killsSaved);
+  G.killsSaved = G.kills;
+}
+
 function gameOver() {
   phase = 'over';
-  const old = stats();
-  if (!G.test) {
-    store.set('hiscore', Math.max(old.hiscore, G.score));
-    store.set('totalKills', old.totalKills + G.kills);
-  }
+  saveStats();
   const best = store.get('hiscore', 0);
-  const isNew = !G.test && G.score > old.hiscore;
+  const isNew = !G.test && G.score > G.hiscoreAtStart;
   $('overTitle').textContent = G.test ? 'Testmodus beendet' : 'Schiff zerstört – Game Over';
   $('overStats').innerHTML = `
     <span>Punkte: <b>${G.score}</b>${isNew ? ' · neuer Highscore!' : ''}</span><span>Highscore: <b>${best}</b></span>
@@ -1241,6 +1248,8 @@ $('ships').addEventListener('click', e => {
 });
 $('musicBtn').addEventListener('click', () => { musicOn = !musicOn; store.set('music', musicOn); $('musicBtn').textContent = musicOn ? 'Musik: an' : 'Musik: aus'; });
 $('muteBtn').addEventListener('click', () => { muted = !muted; store.set('muted', muted); $('muteBtn').textContent = muted ? 'Ton: aus' : 'Ton: an'; });
+
+window.addEventListener('pagehide', saveStats);
 
 buildMenu();
 requestAnimationFrame(loop);
