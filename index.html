@@ -85,7 +85,7 @@
       <p class="progress" id="progress"></p>
       <div class="row left">
         <span class="hint" id="hiscore"></span>
-        <span><button class="ghost" id="muteBtn">Ton: an</button> <button id="startBtn">Start ⏎</button></span>
+        <span><button class="ghost" id="musicBtn">Musik: an</button> <button class="ghost" id="muteBtn">Ton: an</button> <button id="startBtn">Start ⏎</button></span>
       </div>
       <p id="menuErr" class="fb bad" style="min-height:0"></p>
     </div>
@@ -214,18 +214,106 @@ let leitner = store.get('leitner', {});
 const keys = {};
 const pointer = { active: false, x: W / 2 };
 
-let actx = null;
-function sound(freq, dur, type = 'square', vol = 0.04, slideTo = null) {
+let musicOn = store.get('music', true);
+let actx = null, master = null, musicBus = null, noiseBuf = null;
+
+function audio() {
+  if (!actx) {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = actx.createDynamicsCompressor();
+    master = actx.createGain(); master.gain.value = 0.9;
+    master.connect(comp); comp.connect(actx.destination);
+    musicBus = actx.createGain(); musicBus.gain.value = 0.32; musicBus.connect(master);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+
+function tone(freq, dur, { type = 'square', vol = 0.1, slide = null, delay = 0, at = null, bus = null } = {}) {
   if (muted) return;
   try {
-    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    audio();
+    const t = at ?? actx.currentTime + delay;
+    const o = actx.createOscillator(), g = actx.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, t);
-    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+    o.connect(g); g.connect(bus || master); o.start(t); o.stop(t + dur + 0.02);
   } catch (e) {}
 }
+
+function noise(dur, { vol = 0.2, freq = 1500, slide = null, filter = 'lowpass', delay = 0, at = null, bus = null } = {}) {
+  if (muted) return;
+  try {
+    audio();
+    const t = at ?? actx.currentTime + delay;
+    const src = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+    src.buffer = noiseBuf; f.type = filter; f.frequency.setValueAtTime(freq, t);
+    if (slide) f.frequency.exponentialRampToValueAtTime(slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(bus || master); src.start(t); src.stop(t + dur + 0.02);
+  } catch (e) {}
+}
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const SFX = {
+  click() { tone(rnd(1500, 1800), 0.02, { vol: 0.025 }); },
+  correct() { tone(660, 0.1, { type: 'triangle', vol: 0.14 }); tone(990, 0.16, { type: 'triangle', vol: 0.14, delay: 0.09 }); tone(1320, 0.2, { type: 'sine', vol: 0.06, delay: 0.09 }); },
+  practiced() { tone(520, 0.12, { type: 'triangle', vol: 0.12 }); },
+  wrong() { tone(200, 0.4, { type: 'sawtooth', vol: 0.1, slide: 80 }); tone(150, 0.4, { type: 'square', vol: 0.05, slide: 60 }); },
+  shoot(star) {
+    tone(star ? 1500 : rnd(850, 950), 0.08, { vol: 0.05, slide: star ? 500 : 280 });
+    tone(star ? 750 : 430, 0.07, { type: 'triangle', vol: 0.08, slide: 140 });
+    noise(0.03, { vol: 0.06, freq: 5000, filter: 'highpass' });
+  },
+  hit() { tone(rnd(1100, 1300), 0.06, { type: 'triangle', vol: 0.12, slide: 500 }); noise(0.05, { vol: 0.1, freq: 3500 }); },
+  explode(big) {
+    noise(big ? 0.9 : 0.45, { vol: big ? 0.55 : 0.35, freq: big ? 2000 : rnd(2200, 3000), slide: 90 });
+    tone(big ? 110 : rnd(140, 170), big ? 0.6 : 0.3, { type: 'sine', vol: big ? 0.55 : 0.35, slide: 35 });
+  },
+  escape() { tone(320, 0.4, { type: 'sawtooth', vol: 0.1, slide: 80 }); noise(0.35, { vol: 0.2, freq: 700, slide: 100 }); },
+  alarm() { tone(300, 0.45, { type: 'sawtooth', vol: 0.08, slide: 650 }); tone(310, 0.45, { type: 'sawtooth', vol: 0.06, slide: 660, delay: 0.5 }); },
+  rush() { tone(220, 0.5, { type: 'sawtooth', vol: 0.06, slide: 440 }); },
+  fanfare() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i === 3 ? 0.35 : 0.13, { vol: 0.07, delay: i * 0.12 })); },
+  pickup() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.1, { type: 'triangle', vol: 0.12, delay: i * 0.045 })); },
+  powerEnd() { tone(700, 0.18, { type: 'triangle', vol: 0.08, slide: 250 }); },
+  shield() { tone(400, 0.3, { type: 'sine', vol: 0.15, slide: 900 }); noise(0.2, { vol: 0.08, freq: 2500, filter: 'bandpass' }); },
+  bomb() { noise(1.5, { vol: 0.7, freq: 3500, slide: 60 }); tone(90, 1.1, { type: 'sine', vol: 0.7, slide: 25 }); tone(45, 1.2, { type: 'sawtooth', vol: 0.15, slide: 25 }); },
+  bossIn() { tone(70, 1.5, { type: 'sawtooth', vol: 0.18, slide: 45 }); noise(1.3, { vol: 0.2, freq: 400, slide: 120 }); },
+  bossShot() { tone(900, 0.05, { vol: 0.05, slide: 500 }); },
+  bossFail() { tone(160, 0.7, { type: 'sawtooth', vol: 0.1, slide: 70 }); },
+  gameOver() { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.32, { vol: 0.08, delay: i * 0.22 })); },
+};
+
+// Einfacher Step-Sequencer: Bass, Kick, Hi-Hat und Arpeggio in a-Moll, nur während der Action.
+const Music = {
+  timer: null, step: 0, next: 0,
+  start() {
+    if (this.timer || muted || !musicOn) return;
+    try { audio(); } catch (e) { return; }
+    this.next = actx.currentTime + 0.05; this.step = 0;
+    this.timer = setInterval(() => this.schedule(), 40);
+  },
+  stop() { clearInterval(this.timer); this.timer = null; },
+  schedule() {
+    const sixteenth = 60 / (G && G.rush ? 150 : G && G.boss ? 100 : 128) / 4;
+    while (this.next < actx.currentTime + 0.15) { this.play(this.step, this.next); this.next += sixteenth; this.step = (this.step + 1) % 64; }
+  },
+  play(s, at) {
+    const root = [45, 45, 41, 43][Math.floor(s / 16)];
+    const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+    const bus = musicBus;
+    if (s % 4 === 0) tone(150, 0.16, { type: 'sine', vol: 0.9, slide: 40, at, bus });
+    if (s % 4 === 2) noise(0.04, { vol: 0.25, freq: 8000, filter: 'highpass', at, bus });
+    if (s % 8 === 4) noise(0.12, { vol: 0.35, freq: 1800, filter: 'bandpass', at, bus });
+    if (s % 2 === 0) tone(hz(root + (s % 8 === 6 ? 12 : 0)), 0.14, { type: 'sawtooth', vol: 0.22, at, bus });
+    const arp = [0, 3, 7, 12, 7, 3];
+    if (s % 2 === 1) tone(hz(root + 24 + arp[(s >> 1) % arp.length]), 0.09, { type: 'square', vol: 0.07, at, bus });
+  },
+};
 
 const norm = s => s.toLowerCase().replace(/[¿?¡!.,;:"'«»]/g, '').replace(/\s+/g, ' ').trim();
 const deacc = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -345,6 +433,7 @@ function buildMenu() {
     : `<button type="button" disabled title="${s.need}">🔒 ${s.name} · ${s.need}</button>`).join('');
   $('hiscore').textContent = 'Highscore: ' + store.get('hiscore', 0);
   $('muteBtn').textContent = muted ? 'Ton: aus' : 'Ton: an';
+  $('musicBtn').textContent = musicOn ? 'Musik: an' : 'Musik: aus';
   updateMenuProgress();
 }
 
@@ -375,7 +464,8 @@ function startGame() {
     score: 0, kills: 0, asked: 0, right: 0, exactStreak: 0, missed: new Map(), roundItems: [],
     qIndex: 0, item: null, qMode: 'answer', secureAtStart: secureIn(sel.pool, sel.dir), unlockedAtStart: unlockedSkins(),
     player: { x: W / 2, y: H - 50 }, bullets: [], enemies: [], parts: [], texts: [],
-    spawnLeft: 0, spawnT: 0, cooldown: 0, hintT: 0, combo: 0, shake: 0, flash: 0,
+    spawnLeft: 0, spawnT: 0, cooldown: 0, hintT: 0, combo: 0, shake: 0, flash: 0, whiteFlash: 0,
+    power: {}, shield: 0, drops: [],
     escapes: 0, waveTotal: 0, badWaves: 0, breather: false, bonus: false, bonusKills: 0, rush: false, boss: null,
   };
   G.answerIndex = new Map();
@@ -426,7 +516,7 @@ function submitAnswer(skip = false) {
 
   if (G.qMode === 'practice') {
     if (alternatives(answerOf(G.item)).some(a => deacc(norm(input)) === deacc(norm(a)))) {
-      sound(520, 0.1, 'triangle');
+      SFX.practiced();
       G.qIndex++; nextQuestion();
     } else shakeInput('qInput');
     return;
@@ -452,7 +542,7 @@ function submitAnswer(skip = false) {
     G.queue.splice(Math.min(G.queue.length, 2 + (Math.random() * 3 | 0)), 0, G.item);
     fb.className = 'fb bad';
     fb.innerHTML = wrongText(res, input, G.item) + '<br>Tippe es einmal ab, dann geht es weiter.';
-    sound(180, 0.3, 'sawtooth', 0.05, 90);
+    SFX.wrong();
     G.qMode = 'practice';
     $('qSkip').classList.add('hidden');
     $('qInput').value = ''; $('qInput').focus();
@@ -477,7 +567,7 @@ function submitAnswer(skip = false) {
   fb.className = 'fb ' + (g === 'exact' || g === 'accent' ? 'good' : 'warn');
   fb.innerHTML = `${msg} <span class="ammo">+${ammo.length} Schuss</span>` +
     (stars === 9 ? ' · 3× fehlerfrei in Folge: 9 ★ Superschüsse!' : stars ? ' · inkl. 3 ★ Superschüsse' : '');
-  sound(660, 0.08, 'triangle'); setTimeout(() => sound(990, 0.12, 'triangle'), 90);
+  SFX.correct();
   G.qMode = 'wait';
   flyLetters(stars ? letters.concat(['★']) : letters);
   setTimeout(() => { G.ammo.push(...ammo); updateAmmoLabel(); }, 750);
@@ -538,7 +628,7 @@ async function launchWave() {
     if (G.breather) extra.push('Verschnaufpause: diese Welle ist kleiner');
     text = `⚠ Angriff! Welle ${G.round}` + (extra.length ? `<small>${extra.join(' · ')}</small>` : '');
   }
-  sound(300, 0.4, 'sawtooth', 0.04, 600);
+  SFX.alarm();
   await banner(text, extraDelay(text));
   startWave();
 }
@@ -592,24 +682,86 @@ function explode(x, y, color, n = 18) {
 function floatText(x, y, text, color, sub) { G.texts.push({ x, y, text, color, sub, life: 1.3 }); }
 const comboMult = () => 1 + Math.min(3, Math.floor(G.combo / 5) * 0.5);
 
-function movePlayer(dt) {
+const POWERUPS = {
+  double: { label: '2×', name: 'Doppelschuss', color: '#3ee0ff', dur: 12, weight: 2 },
+  spread: { label: 'W',  name: 'Fächerschuss', color: '#ff6bd6', dur: 10, weight: 2 },
+  rapid:  { label: '≫', name: 'Schnellfeuer', color: '#ffc94a', dur: 10, weight: 2 },
+  speed:  { label: '➜', name: 'Turbo',        color: '#5bf08a', dur: 12, weight: 2 },
+  shield: { label: '◯', name: 'Schild (3×)',  color: '#8fb4ff', dur: 0,  weight: 2 },
+  bomb:   { label: '✸', name: 'Bombe',        color: '#ff5d73', dur: 0,  weight: 1 },
+  ammo:   { label: '+', name: '+30 Schuss',   color: '#ffffff', dur: 0,  weight: 3 },
+};
+const powerActive = type => G.power[type] > 0;
+
+function maybeDrop(e) {
+  if (Math.random() > (e.type === 'tank' ? 0.2 : 0.08)) return;
+  const types = Object.keys(POWERUPS).filter(t => !(t === 'ammo' && G.test));
+  let roll = Math.random() * types.reduce((s, t) => s + POWERUPS[t].weight, 0);
+  const type = types.find(t => (roll -= POWERUPS[t].weight) < 0) || 'ammo';
+  G.drops.push({ type, x: e.x, y: e.y, t: 0 });
+}
+
+function collectPowerup(d) {
+  const def = POWERUPS[d.type];
+  floatText(G.player.x, G.player.y - 40, def.name, def.color);
+  SFX.pickup();
+  if (def.dur) G.power[d.type] = def.dur;
+  else if (d.type === 'shield') G.shield = 3;
+  else if (d.type === 'ammo') {
+    const word = G.roundItems.length ? lettersOf(answerOf(G.roundItems[Math.random() * G.roundItems.length | 0])) : lettersOf('MUNICION');
+    for (let i = 0; i < 30; i++) G.ammo.push(word[i % word.length]);
+  } else if (d.type === 'bomb') {
+    for (const e of G.enemies) if (e.hp > 0 && e.y > -20) { e.hp = 0; killEnemy(e, true); }
+    G.shake = 0.7; G.whiteFlash = 0.5;
+    SFX.bomb();
+  }
+}
+
+function updatePowerups(dt) {
+  for (const type in G.power) {
+    if (G.power[type] > 0) { G.power[type] -= dt; if (G.power[type] <= 0) SFX.powerEnd(); }
+  }
+  for (const d of G.drops) {
+    d.t += dt; d.y += 110 * dt;
+    if (Math.hypot(d.x - G.player.x, d.y - G.player.y) < 32) { d.taken = true; collectPowerup(d); }
+  }
+  G.drops = G.drops.filter(d => !d.taken && d.y < H + 20);
+}
+
+function fire() {
   const p = G.player;
+  const ch = G.test ? 'LOSPOLLOSHERMANOS'[Math.random() * 17 | 0] : G.ammo.shift();
+  const dmg = ch === '★' ? 2 : 1;
+  const xs = powerActive('double') ? [-10, 10] : [0];
+  const vxs = powerActive('spread') ? [-220, 0, 220] : [0];
+  let main = true;
+  for (const vx of vxs) for (const dx of xs) {
+    G.bullets.push({ x: p.x + dx, y: p.y - 22, vx, ch, dmg, main });
+    main = false;
+  }
+  G.cooldown = powerActive('rapid') ? 0.085 : 0.17;
+  SFX.shoot(ch === '★');
+}
+
+function movePlayer(dt) {
+  const p = G.player, v = powerActive('speed') ? 700 : 430;
   let dx = 0;
   if (keys.ArrowLeft || keys.KeyA) dx -= 1;
   if (keys.ArrowRight || keys.KeyD) dx += 1;
-  if (dx) p.x += dx * 430 * dt;
-  else if (pointer.active) p.x += Math.max(-430 * dt, Math.min(430 * dt, pointer.x - p.x));
+  if (dx) p.x += dx * v * dt;
+  else if (pointer.active) p.x += Math.max(-v * dt, Math.min(v * dt, pointer.x - p.x));
   p.x = Math.max(24, Math.min(W - 24, p.x));
 }
 
 function updateBullets(dt) {
   for (const b of G.bullets) {
     b.y -= 750 * dt;
-    if (b.x !== undefined && b.tx !== undefined) b.x += (b.tx - b.x) * Math.min(1, dt * 6);
+    if (b.tx !== undefined) b.x += (b.tx - b.x) * Math.min(1, dt * 6);
+    else if (b.vx) b.x += b.vx * dt;
   }
 }
 
-function killEnemy(e) {
+function killEnemy(e, byBomb = false) {
   G.kills++;
   const typeMult = e.type === 'tank' ? 2 : e.type === 'fast' ? 1.5 : 1;
   const pts = Math.round(10 * G.round * typeMult * comboMult());
@@ -617,22 +769,17 @@ function killEnemy(e) {
   explode(e.x, e.y, e.color);
   const word = G.roundItems.length ? alternatives(answerOf(G.roundItems[Math.random() * G.roundItems.length | 0]))[0] : null;
   floatText(e.x, e.y, '+' + pts, '#5bf08a', word);
-  sound(140 + Math.random() * 40, 0.3, 'sawtooth', 0.05, 40);
+  if (!byBomb) { SFX.explode(e.type === 'tank'); maybeDrop(e); }
   if (e.type === 'tank') G.shake = 0.25;
   if (e.type === 'bonus') { G.bonusKills++; const l = lettersOf(word || 'OLE'); G.ammo.push(l[0], l[l.length - 1]); }
 }
 
 function updateShoot(dt) {
   movePlayer(dt);
-  const p = G.player;
+  updatePowerups(dt);
 
   G.cooldown -= dt;
-  if ((keys.Space || pointer.active) && G.cooldown <= 0 && (G.test || G.ammo.length)) {
-    const ch = G.test ? 'LOSPOLLOSHERMANOS'[Math.random() * 17 | 0] : G.ammo.shift();
-    G.bullets.push({ x: p.x, y: p.y - 22, ch, dmg: ch === '★' ? 2 : 1 });
-    G.cooldown = 0.17;
-    sound(ch === '★' ? 1200 : 860 + Math.random() * 60, 0.07, 'square', 0.025, 440);
-  }
+  if ((keys.Space || pointer.active) && G.cooldown <= 0 && (G.test || G.ammo.length)) fire();
 
   G.spawnT -= dt;
   if (G.spawnLeft > 0 && G.spawnT <= 0) {
@@ -644,7 +791,7 @@ function updateShoot(dt) {
   if (!G.bonus && !G.rush && G.spawnLeft === 0 && G.enemies.length > 0 && G.enemies.length <= 3) {
     G.rush = true;
     for (const e of G.enemies) e.vy *= 1.4;
-    sound(200, 0.5, 'sawtooth', 0.03, 400);
+    SFX.rush();
   }
 
   updateBullets(dt);
@@ -660,20 +807,28 @@ function updateShoot(dt) {
       if (e.hp > 0 && !b.hit && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 8) {
         b.hit = true; e.hp -= b.dmg; e.flashT = 0.08; G.combo++;
         if (e.hp <= 0) killEnemy(e);
-        else { explode(b.x, b.y, '#fff', 5); sound(400, 0.05, 'square', 0.03); }
+        else { explode(b.x, b.y, '#fff', 5); SFX.hit(); }
       }
     }
-    if (!b.hit && b.y < -20) { b.gone = true; G.combo = 0; }
+    if (!b.hit && (b.y < -20 || b.x < -20 || b.x > W + 20)) { b.gone = true; if (b.main) G.combo = 0; }
   }
   for (const e of G.enemies) {
     if (e.hp <= 0) continue;
     if (e.type === 'bonus' && (e.x < -60 || e.x > W + 60)) { e.hp = 0; continue; }
     if (e.type !== 'bonus' && e.y > H + 20) {
-      e.hp = 0; G.escapes++;
+      e.hp = 0;
+      if (G.shield > 0) {
+        G.shield--;
+        floatText(e.x, H - 90, 'Schild!', '#8fb4ff');
+        explode(e.x, H - 10, '#8fb4ff', 14);
+        SFX.shield();
+        continue;
+      }
+      G.escapes++;
       const lost = G.test ? 0 : G.ammo.splice(0, ESCAPE_PENALTY).length;
       floatText(e.x, H - 90, lost ? `-${lost} Schuss` : 'durch!', '#ff5d73');
       G.shake = 0.3; G.flash = 0.4;
-      sound(220, 0.25, 'triangle', 0.05, 110);
+      SFX.escape();
     }
   }
   G.bullets = G.bullets.filter(b => !b.hit && !b.gone);
@@ -686,6 +841,7 @@ function updateShoot(dt) {
 
 async function waveCleared() {
   phase = 'transition';
+  G.drops = [];
   let text;
   if (G.bonus) {
     const perfect = G.bonusKills === G.waveTotal;
@@ -698,7 +854,7 @@ async function waveCleared() {
     if (G.badWaves >= 2) { G.breather = true; G.badWaves = 0; }
     text = `Welle ${G.round} geschafft! +${50 * G.round}`;
   }
-  sound(523, 0.12, 'triangle'); setTimeout(() => sound(659, 0.12, 'triangle'), 120); setTimeout(() => sound(784, 0.2, 'triangle'), 240);
+  SFX.fanfare();
   await banner(text, 1700);
   if (!G.bonus && !G.test && G.round >= 2 && G.roundItems.length) startBoss();
   else nextRound();
@@ -718,7 +874,7 @@ function startBoss() {
   G.boss = { item, x: W / 2, y: -90, t: 0, time: BOSS_TIME, state: 'enter', hp: 1, flashT: 0, shots: [] };
   G.bullets = []; G.enemies = [];
   phase = 'boss';
-  sound(90, 1.2, 'sawtooth', 0.06, 60);
+  SFX.bossIn();
 }
 
 function showBossPanel() {
@@ -756,7 +912,7 @@ function bossFail(res, input) {
   fb.className = 'fb bad';
   fb.innerHTML = res ? wrongText(res, input, B.item).replace('Leider falsch. ', 'Der Boss entkommt. ') : `Zeit abgelaufen. Richtig ist: <b>${escapeHtml(answerOf(B.item))}</b>`;
   $('bInput').blur();
-  sound(150, 0.6, 'sawtooth', 0.05, 70);
+  SFX.bossFail();
 }
 
 function updateBoss(dt) {
@@ -776,7 +932,7 @@ function updateBoss(dt) {
     if (B.shots.length && B.shotT <= 0) {
       G.bullets.push({ x: G.player.x, y: G.player.y - 22, ch: B.shots.shift(), dmg: 0, tx: B.x });
       B.shotT = 0.07;
-      sound(900, 0.05, 'square', 0.025, 500);
+      SFX.bossShot();
     }
     for (const b of G.bullets) b.tx = B.x;
     updateBullets(dt);
@@ -797,7 +953,7 @@ async function bossDefeated() {
   G.score += pts; G.ammo.push(...ammo); G.kills++;
   for (let i = 0; i < 4; i++) explode(B.x + (Math.random() - 0.5) * 60, B.y + (Math.random() - 0.5) * 40, i % 2 ? '#ff3355' : '#ffc94a', 30);
   G.shake = 0.6;
-  sound(80, 0.8, 'sawtooth', 0.07, 30);
+  SFX.explode(true); SFX.bomb();
   showPanel(null);
   phase = 'transition';
   await banner(`Boss besiegt!<small>+${pts} Punkte · +${ammo.length} Schuss</small>`, 2000);
@@ -834,7 +990,7 @@ function gameOver() {
     ? `<p>Diese Vokabeln solltest du noch üben:</p><ul class="missed">${[...G.missed].map(([q, a]) => `<li>${escapeHtml(q)} = <b>${escapeHtml(a)}</b></li>`).join('')}</ul>`
     : (G.asked ? '<p>Keine Vokabel falsch. Stark!</p>' : '');
   showPanel('over');
-  sound(300, 0.6, 'sawtooth', 0.05, 60);
+  SFX.gameOver();
 }
 
 function togglePause() {
@@ -884,6 +1040,17 @@ function drawBoss(B) {
   ctx.fillText('BOSS', B.x, B.y - 52);
 }
 
+function drawDrop(d) {
+  const def = POWERUPS[d.type], r = 15 + Math.sin(d.t * 6) * 2;
+  ctx.save(); ctx.translate(d.x, d.y);
+  ctx.shadowColor = def.color; ctx.shadowBlur = 18;
+  ctx.fillStyle = 'rgba(7,11,26,.85)'; ctx.strokeStyle = def.color; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.fillStyle = def.color; ctx.font = '800 15px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(def.label, 0, 1);
+  ctx.restore();
+}
+
 function drawHud() {
   ctx.fillStyle = 'rgba(7,11,26,.6)'; ctx.fillRect(0, 0, W, 34);
   ctx.font = '600 17px system-ui, sans-serif'; ctx.textBaseline = 'middle';
@@ -904,6 +1071,16 @@ function drawHud() {
     }
     ctx.textAlign = 'left'; ctx.font = '700 15px ui-monospace, monospace'; ctx.fillStyle = '#ffc94a';
     ctx.fillText('Nächste: ' + G.ammo.slice(0, 14).join(' ') + (G.ammo.length > 14 ? ' …' : ''), 14, H - 14);
+  }
+  ctx.textAlign = 'right'; ctx.font = '700 14px system-ui, sans-serif';
+  let py = H - 14;
+  if (G.shield > 0) { ctx.fillStyle = POWERUPS.shield.color; ctx.fillText(`Schild ${G.shield}×`, W - 14, py); py -= 20; }
+  for (const type in G.power) {
+    if (G.power[type] <= 0) continue;
+    const def = POWERUPS[type];
+    ctx.fillStyle = def.color; ctx.fillText(`${def.name} ${Math.ceil(G.power[type])} s`, W - 14, py);
+    ctx.fillRect(W - 14 - 60, py + 8, 60 * G.power[type] / def.dur, 3);
+    py -= 22;
   }
   if (G.rush) { ctx.textAlign = 'center'; ctx.fillStyle = '#ff5d73'; ctx.font = '800 18px system-ui, sans-serif'; ctx.fillText('Endspurt!', W / 2, 52); }
 }
@@ -938,13 +1115,20 @@ function draw(dt) {
       drawGlider(e);
     }
     if (G.boss && G.boss.state !== 'dead') drawBoss(G.boss);
+    for (const d of G.drops) drawDrop(d);
     ctx.font = '800 20px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const b of G.bullets) {
       ctx.shadowColor = '#ffc94a'; ctx.shadowBlur = 10; ctx.fillStyle = b.ch === '★' ? '#fff27a' : '#ffc94a';
       ctx.fillText(b.ch, b.x, b.y);
     }
     ctx.shadowBlur = 0;
-    if (phase !== 'over') drawShip(G.player.x, G.player.y, currentSkin());
+    if (phase !== 'over') {
+      drawShip(G.player.x, G.player.y, currentSkin());
+      if (G.shield > 0) {
+        ctx.strokeStyle = `rgba(143,180,255,${0.35 + G.shield * 0.15})`; ctx.lineWidth = 2 + G.shield;
+        ctx.beginPath(); ctx.arc(G.player.x, G.player.y, 34 + Math.sin(performance.now() / 150) * 2, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
     for (const t of G.texts) {
       if (!frozen) { t.y -= 40 * dt; t.life -= dt; }
       ctx.globalAlpha = Math.max(0, Math.min(1, t.life));
@@ -960,6 +1144,11 @@ function draw(dt) {
       ctx.fillText(`Jeder Schuss kostet einen Buchstaben. Gleiter, die durchkommen, klauen ${ESCAPE_PENALTY} Schuss.`, W / 2, H / 2 + 90);
     }
   }
+  if (G.whiteFlash > 0) {
+    if (!frozen) G.whiteFlash -= dt;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = `rgba(255,255,255,${Math.max(0, G.whiteFlash)})`; ctx.fillRect(0, 0, W, H);
+  }
   if (G.flash > 0) {
     if (!frozen) G.flash -= dt;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -972,6 +1161,7 @@ function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (phase === 'shoot') updateShoot(dt);
   else if (phase === 'boss') updateBoss(dt);
+  if (phase === 'shoot' || phase === 'boss') Music.start(); else Music.stop();
   draw(dt);
   requestAnimationFrame(loop);
 }
@@ -1004,7 +1194,7 @@ for (const id of ['qAccents', 'bAccents']) {
     i.value = i.value.slice(0, s) + c + i.value.slice(en); i.focus(); i.setSelectionRange(s + 1, s + 1);
   });
 }
-for (const id of ['qInput', 'bInput']) $(id).addEventListener('input', () => sound(1500 + Math.random() * 300, 0.02, 'square', 0.008));
+for (const id of ['qInput', 'bInput']) $(id).addEventListener('input', () => SFX.click());
 
 $('qOk').addEventListener('click', () => submitAnswer());
 $('qSkip').addEventListener('click', () => submitAnswer(true));
@@ -1023,6 +1213,7 @@ $('ships').addEventListener('click', e => {
   store.set('skin', id);
   for (const b of document.querySelectorAll('#ships button')) b.classList.toggle('sel', b.dataset.skin === id);
 });
+$('musicBtn').addEventListener('click', () => { musicOn = !musicOn; store.set('music', musicOn); $('musicBtn').textContent = musicOn ? 'Musik: an' : 'Musik: aus'; });
 $('muteBtn').addEventListener('click', () => { muted = !muted; store.set('muted', muted); $('muteBtn').textContent = muted ? 'Ton: aus' : 'Ton: an'; });
 
 buildMenu();
