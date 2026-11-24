@@ -67,7 +67,7 @@
   <div id="ui">
     <div id="menu" class="panel">
       <h1>VOKABEL-BLASTER</h1>
-      <p>Tippe die Vokabeln richtig ein. Jeder Buchstabe einer richtigen Antwort wird zu Munition. Danach greifen Raumgleiter an. Ist die Munition alle, ist das Spiel vorbei.</p>
+      <p>Raumgleiter greifen an. Deine Munition sind Buchstaben: Mit <b>R</b> lädst du nach, indem du Vokabeln richtig eintippst. Jeder durchgekommene Gleiter beschädigt deine Hülle. Nach 5 Treffern ist das Spiel vorbei.</p>
       <h3>Themen</h3>
       <div class="topics" id="topics"></div>
       <div style="margin-top:8px"><label><input type="checkbox" id="useCustom"> Eigene Vokabelliste</label></div>
@@ -191,10 +191,10 @@ const SKINS = [
   { id: 'phantom', name: 'Phantom', color: '#ffc94a', wing: 24, fins: true, need: '30 Wörter sicher', ok: s => s.secure >= 30 },
 ];
 
-const QUESTIONS_PER_ROUND = 6;
-const START_AMMO = 'HOLAAMIGO';
-const AMMO_PER_LETTER = 3;
-const ESCAPE_PENALTY = 5;
+const START_AMMO = 'HOLAAMIGOVAMOS';
+const AMMO_PER_LETTER = 2;
+const HULL = 5;
+const AMMO_PACK = 10;
 const BOX_DAYS = [0, 0, 1, 3, 7, 14];
 const SECURE_BOX = 3;
 const BOSS_TIME = 25;
@@ -460,9 +460,9 @@ function startGame() {
   const skinBtn = document.querySelector('#ships button.sel');
   G = {
     dir: sel.dir, skin: skinBtn ? skinBtn.dataset.skin : 'falke', test: false,
-    round: 1, pool: sel.pool, queue: orderPool(sel.pool, sel.dir), ammo: toAmmo(START_AMMO.split('')),
+    round: 1, pool: sel.pool, queue: orderPool(sel.pool, sel.dir), ammo: toAmmo(START_AMMO.split('')), hull: HULL,
     score: 0, kills: 0, asked: 0, right: 0, exactStreak: 0, missed: new Map(), roundItems: [],
-    qIndex: 0, item: null, qMode: 'answer', secureAtStart: secureIn(sel.pool, sel.dir), unlockedAtStart: unlockedSkins(),
+    item: null, qMode: 'answer', secureAtStart: secureIn(sel.pool, sel.dir), unlockedAtStart: unlockedSkins(),
     player: { x: W / 2, y: H - 50 }, bullets: [], enemies: [], parts: [], texts: [],
     spawnLeft: 0, spawnT: 0, cooldown: 0, hintT: 0, combo: 0, shake: 0, flash: 0, whiteFlash: 0,
     power: {}, shield: 0, drops: [],
@@ -470,14 +470,15 @@ function startGame() {
   };
   G.answerIndex = new Map();
   for (const it of sel.pool) for (const a of alternatives(answerOf(it))) G.answerIndex.set(norm(a), it);
-  startQuiz();
+  launchWave();
 }
 
-// ---------- Vokabelrunde ----------
-function startQuiz() {
-  phase = 'quiz';
-  G.qIndex = 0;
-  G.roundItems = [];
+// ---------- Nachladen (Vokabeln) ----------
+function openReload(auto = false) {
+  phase = 'reload';
+  for (const k in keys) keys[k] = false;
+  pointer.active = false;
+  G.reloadAuto = auto;
   showPanel('quiz');
   renderAccents('qAccents', 'qInput');
   $('qLabel').textContent = DIRS[G.dir].label;
@@ -485,12 +486,26 @@ function startQuiz() {
   nextQuestion();
 }
 
+function closeReload() {
+  if (phase !== 'reload') return;
+  if (!G.test && !G.ammo.length) {
+    $('qFb').className = 'fb bad';
+    $('qFb').textContent = 'Ohne Munition geht es nicht weiter. Lade mindestens ein Wort nach.';
+    shakeInput('qInput');
+    return;
+  }
+  phase = 'shoot';
+  showPanel(null);
+  $('qInput').blur();
+  last = performance.now();
+}
+
 function nextQuestion() {
-  if (G.qIndex >= QUESTIONS_PER_ROUND) return endQuiz();
+  if (phase !== 'reload') return;
   if (!G.queue.length) G.queue = orderPool(G.pool, G.dir);
   G.item = G.queue.shift();
   G.qMode = 'answer';
-  $('qRound').textContent = `Runde ${G.round} · Frage ${G.qIndex + 1}/${QUESTIONS_PER_ROUND}`;
+  $('qRound').textContent = G.reloadAuto && !G.ammo.length ? 'Munition leer! Nachladen' : 'Nachladen · Esc = weiterspielen';
   $('qPrompt').textContent = promptOf(G.item);
   $('qFb').textContent = ''; $('qFb').className = 'fb';
   $('qInput').value = '';
@@ -511,13 +526,13 @@ function wrongText(res, input, item) {
 }
 
 function submitAnswer(skip = false) {
-  if (phase !== 'quiz') return;
+  if (phase !== 'reload') return;
   const input = $('qInput').value;
 
   if (G.qMode === 'practice') {
     if (alternatives(answerOf(G.item)).some(a => deacc(norm(input)) === deacc(norm(a)))) {
       SFX.practiced();
-      G.qIndex++; nextQuestion();
+      nextQuestion();
     } else shakeInput('qInput');
     return;
   }
@@ -526,14 +541,14 @@ function submitAnswer(skip = false) {
   if (!skip && norm(input) === 'los pollos hermanos') {
     G.test = true;
     phase = 'transition'; showPanel(null); $('qInput').blur();
-    banner('TESTMODUS<small>unbegrenzte Munition · kein Highscore · kein Lernfortschritt · Esc = Pause</small>', 2200).then(launchWave);
+    banner('TESTMODUS<small>unbegrenzte Munition · kein Highscore · kein Lernfortschritt</small>', 2200).then(() => { phase = 'shoot'; last = performance.now(); });
     return;
   }
 
   const res = skip ? { grade: 'wrong', alt: alternatives(answerOf(G.item))[0] } : gradeItem(input, G.item);
   const g = res.grade, alt = res.alt, fb = $('qFb');
   G.asked++;
-  G.roundItems.push(G.item);
+  G.roundItems = G.roundItems.filter(it => it !== G.item).concat([G.item]).slice(-12);
   leitnerUpdate(G.item, g);
 
   if (g === 'wrong') {
@@ -569,9 +584,10 @@ function submitAnswer(skip = false) {
     (stars === 9 ? ' · 3× fehlerfrei in Folge: 9 ★ Superschüsse!' : stars ? ' · inkl. 3 ★ Superschüsse' : '');
   SFX.correct();
   G.qMode = 'wait';
+  G.ammo.push(...ammo);
   flyLetters(stars ? letters.concat(['★']) : letters);
-  setTimeout(() => { G.ammo.push(...ammo); updateAmmoLabel(); }, 750);
-  setTimeout(() => { G.qIndex++; nextQuestion(); }, g === 'exact' ? 1200 : 2200);
+  setTimeout(updateAmmoLabel, 750);
+  setTimeout(nextQuestion, g === 'exact' ? 1100 : 2000);
 }
 
 function flyLetters(letters) {
@@ -591,12 +607,6 @@ function flyLetters(letters) {
   });
 }
 
-function endQuiz() {
-  phase = 'transition';
-  showPanel(null);
-  $('qInput').blur();
-  launchWave();
-}
 
 // ---------- Ballerrunde ----------
 // Pro Runde steigt immer nur ein Wert: abwechselnd Anzahl, Tempo, Gegner-Mix.
@@ -689,13 +699,14 @@ const POWERUPS = {
   speed:  { label: '➜', name: 'Turbo',        color: '#5bf08a', dur: 12, weight: 2 },
   shield: { label: '◯', name: 'Schild (3×)',  color: '#8fb4ff', dur: 0,  weight: 2 },
   bomb:   { label: '✸', name: 'Bombe',        color: '#ff5d73', dur: 0,  weight: 1 },
-  ammo:   { label: '+', name: '+30 Schuss',   color: '#ffffff', dur: 0,  weight: 3 },
+  ammo:   { label: '+', name: `+${AMMO_PACK} Schuss`, color: '#ffffff', dur: 0, weight: 3 },
+  repair: { label: '♥', name: 'Reparatur',    color: '#ff8fa3', dur: 0,  weight: 1 },
 };
 const powerActive = type => G.power[type] > 0;
 
 function maybeDrop(e) {
   if (Math.random() > (e.type === 'tank' ? 0.2 : 0.08)) return;
-  const types = Object.keys(POWERUPS).filter(t => !(t === 'ammo' && G.test));
+  const types = Object.keys(POWERUPS).filter(t => !(t === 'ammo' && G.test) && !(t === 'repair' && G.hull >= HULL));
   let roll = Math.random() * types.reduce((s, t) => s + POWERUPS[t].weight, 0);
   const type = types.find(t => (roll -= POWERUPS[t].weight) < 0) || 'ammo';
   G.drops.push({ type, x: e.x, y: e.y, t: 0 });
@@ -709,7 +720,9 @@ function collectPowerup(d) {
   else if (d.type === 'shield') G.shield = 3;
   else if (d.type === 'ammo') {
     const word = G.roundItems.length ? lettersOf(answerOf(G.roundItems[Math.random() * G.roundItems.length | 0])) : lettersOf('MUNICION');
-    for (let i = 0; i < 30; i++) G.ammo.push(word[i % word.length]);
+    for (let i = 0; i < AMMO_PACK; i++) G.ammo.push(word[i % word.length]);
+  } else if (d.type === 'repair') {
+    G.hull = Math.min(HULL, G.hull + 1);
   } else if (d.type === 'bomb') {
     for (const e of G.enemies) if (e.hp > 0 && e.y > -20) { e.hp = 0; killEnemy(e, true); }
     G.shake = 0.7; G.whiteFlash = 0.5;
@@ -825,18 +838,19 @@ function updateShoot(dt) {
         continue;
       }
       G.escapes++;
-      const lost = G.test ? 0 : G.ammo.splice(0, ESCAPE_PENALTY).length;
-      floatText(e.x, H - 90, lost ? `-${lost} Schuss` : 'durch!', '#ff5d73');
-      G.shake = 0.3; G.flash = 0.4;
+      if (!G.test) G.hull--;
+      floatText(e.x, H - 90, G.test ? 'durch!' : 'Hülle getroffen!', '#ff5d73');
+      G.shake = 0.35; G.flash = 0.5;
       SFX.escape();
     }
   }
   G.bullets = G.bullets.filter(b => !b.hit && !b.gone);
   G.enemies = G.enemies.filter(e => e.hp > 0);
+  if (G.hull <= 0) return gameOver();
 
   G.hintT -= dt;
   if (!G.enemies.length && !G.spawnLeft) return waveCleared();
-  if (!G.test && !G.bonus && !G.ammo.length && !G.bullets.length) return gameOver();
+  if (!G.test && !G.ammo.length && !G.bullets.length && (keys.Space || pointer.active)) return openReload(true);
 }
 
 async function waveCleared() {
@@ -845,8 +859,9 @@ async function waveCleared() {
   let text;
   if (G.bonus) {
     const perfect = G.bonusKills === G.waveTotal;
-    if (perfect) { G.score += 500 * G.round; G.ammo.push(...toAmmo(lettersOf('PERFECTO'))); }
-    text = perfect ? `PERFECT! ${G.bonusKills}/${G.waveTotal}<small>+${500 * G.round} Punkte · +24 Schuss</small>`
+    const prize = toAmmo(lettersOf('PERFECTO'));
+    if (perfect) { G.score += 500 * G.round; G.ammo.push(...prize); }
+    text = perfect ? `PERFECT! ${G.bonusKills}/${G.waveTotal}<small>+${500 * G.round} Punkte · +${prize.length} Schuss</small>`
                    : `Bonuswelle: ${G.bonusKills}/${G.waveTotal} erwischt`;
   } else {
     G.score += 50 * G.round;
@@ -856,18 +871,19 @@ async function waveCleared() {
   }
   SFX.fanfare();
   await banner(text, 1700);
-  if (!G.bonus && !G.test && G.round >= 2 && G.roundItems.length) startBoss();
+  if (!G.bonus && !G.test && G.round >= 2) startBoss();
   else nextRound();
 }
 
 function nextRound() {
   G.round++;
-  if (G.test) launchWave(); else startQuiz();
+  launchWave();
 }
 
 // ---------- Boss ----------
 function startBoss() {
-  const items = G.roundItems;
+  if (!G.queue.length) G.queue = orderPool(G.pool, G.dir);
+  const items = G.roundItems.length ? G.roundItems : [G.queue.shift()];
   const item = G.round >= 4
     ? items.slice().sort((a, b) => answerOf(b).length - answerOf(a).length)[0]
     : items[Math.random() * items.length | 0];
@@ -977,7 +993,7 @@ function gameOver() {
   }
   const best = store.get('hiscore', 0);
   const isNew = !G.test && G.score > old.hiscore;
-  $('overTitle').textContent = G.test ? 'Testmodus beendet' : 'Munition leer – Game Over';
+  $('overTitle').textContent = G.test ? 'Testmodus beendet' : 'Schiff zerstört – Game Over';
   $('overStats').innerHTML = `
     <span>Punkte: <b>${G.score}</b>${isNew ? ' · neuer Highscore!' : ''}</span><span>Highscore: <b>${best}</b></span>
     <span>Erreichte Welle: <b>${G.round}</b></span><span>Abschüsse: <b>${G.kills}</b></span>
@@ -1056,6 +1072,14 @@ function drawHud() {
   ctx.font = '600 17px system-ui, sans-serif'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#8f9ac4'; ctx.textAlign = 'left';
   ctx.fillText(G.bonus ? `Bonuswelle · ${G.bonusKills}/${G.waveTotal}` : `Welle ${G.round} · Gegner ${G.enemies.length + G.spawnLeft}`, 14, 17);
+  if (!G.test) {
+    ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#8f9ac4'; ctx.fillText('Hülle', 14, 50);
+    for (let i = 0; i < HULL; i++) {
+      ctx.fillStyle = i < G.hull ? (G.hull <= 2 ? '#ff5d73' : '#5bf08a') : '#18234d';
+      ctx.fillRect(58 + i * 20, 43, 16, 14);
+    }
+    ctx.font = '600 17px system-ui, sans-serif';
+  }
   ctx.fillStyle = '#e8ecff'; ctx.textAlign = 'center';
   const mult = comboMult();
   ctx.fillText(`Punkte ${G.score}` + (mult > 1 ? `  ·  Kombo x${mult}` : ''), W / 2, 17);
@@ -1067,7 +1091,7 @@ function drawHud() {
     const low = G.ammo.length < 15;
     ctx.fillStyle = low ? '#ff5d73' : '#ffc94a'; ctx.fillText(`⚡ ${G.ammo.length} Schuss`, W - 14, 17);
     if (low && !G.bonus && Math.floor(performance.now() / 300) % 2) {
-      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillText('Munition knapp!', W - 14, 50);
+      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillText('Munition knapp! R = Nachladen', W - 14, 50);
     }
     ctx.textAlign = 'left'; ctx.font = '700 15px ui-monospace, monospace'; ctx.fillStyle = '#ffc94a';
     ctx.fillText('Nächste: ' + G.ammo.slice(0, 14).join(' ') + (G.ammo.length > 14 ? ' …' : ''), 14, H - 14);
@@ -1139,9 +1163,9 @@ function draw(dt) {
     if (phase === 'shoot' || phase === 'pause') drawHud();
     if (phase === 'shoot' && G.hintT > 0) {
       ctx.fillStyle = '#e8ecff'; ctx.font = '600 20px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('← → oder A/D bewegen · Leertaste feuern · Esc = Pause', W / 2, H / 2 + 60);
+      ctx.fillText('← → oder A/D bewegen · Leertaste feuern · R = Nachladen · Esc = Pause', W / 2, H / 2 + 60);
       ctx.fillStyle = '#8f9ac4'; ctx.font = '16px system-ui, sans-serif';
-      ctx.fillText(`Jeder Schuss kostet einen Buchstaben. Gleiter, die durchkommen, klauen ${ESCAPE_PENALTY} Schuss.`, W / 2, H / 2 + 90);
+      ctx.fillText(`Nachladen = Vokabeln tippen. Jeder durchgekommene Gleiter beschädigt die Hülle (${HULL} Treffer).`, W / 2, H / 2 + 90);
     }
   }
   if (G.whiteFlash > 0) {
@@ -1170,9 +1194,11 @@ function loop(now) {
 document.addEventListener('keydown', e => {
   if (phase === 'shoot' && ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
   if (phase !== 'boss') keys[e.code] = true;
+  if (e.code === 'Escape' && phase === 'reload') { e.preventDefault(); closeReload(); return; }
+  if (e.code === 'KeyR' && phase === 'shoot' && !G.test) { e.preventDefault(); keys.KeyR = false; openReload(); return; }
   if (e.code === 'Escape' || (e.code === 'KeyP' && phase === 'shoot')) { togglePause(); return; }
   if (e.key === 'Enter') {
-    if (phase === 'quiz') { e.preventDefault(); submitAnswer(); }
+    if (phase === 'reload') { e.preventDefault(); submitAnswer(); }
     else if (phase === 'boss') { e.preventDefault(); bossSubmit(); }
     else if (phase === 'menu' && document.activeElement !== $('customList')) startGame();
     else if (phase === 'over') startGame();
