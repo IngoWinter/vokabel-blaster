@@ -13,6 +13,11 @@
     touch-action:manipulation; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
   input, textarea { -webkit-user-select:text; user-select:text; }
   body.flying { touch-action:none; }   /* während des Fliegens: Finger überall = Steuerung, kein Scrollen */
+  /* iPad: Während der Bildschirmtastatur sitzen Spielfeld und Eingabefenster oben, damit die
+     Tastatur (kommt von unten) nichts verdeckt. Die Spielfeldgröße wird per JS festgehalten. */
+  body.typing { align-items:flex-start; }
+  body.typing #ui { align-items:flex-start; }
+  body.typing .panel.boss { align-self:flex-start; }
   #wrap { position:relative; width:min(100%, 600px, calc((100vh - 16px) * 0.75)); aspect-ratio:3/4; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
   /* dvh = sichtbare Höhe ohne Safari-Leisten */
   @supports (height:100dvh) { #wrap { width:min(100%, 600px, calc((100dvh - 16px) * 0.75)); } }
@@ -926,6 +931,7 @@ async function launchWave() {
     if (G.round === 5) extra.push('Neu: Zickzack-Gleiter, schnell und wendig');
     if (G.round === 6) extra.push('Neu: Kamikaze-Drohnen stürzen sich auf dich · ausweichen oder abschießen!');
     if (G.round === 7) extra.push('Neu: Elite-Gleiter (gold), doppelt so zäh · alle Gegner werden jetzt jede Welle zäher');
+    if (G.round === 8) extra.push('Neu: Schildgleiter (blau) schützen Panzergleiter · erst den Schildgleiter abschießen!');
     if (G.round === 9) extra.push('Neu: Schützen-Gleiter schießen zurück, weich aus!');
     if (G.breather) extra.push('Verschnaufpause: diese Welle ist kleiner');
     if (G.curse) extra.unshift(`💀 Fluch „${CURSES[G.curse].name}“: ${CURSES[G.curse].desc}`);
@@ -964,16 +970,19 @@ function startWave() {
 function spawnEnemy() {
   const c = G.cfg, roll = Math.random();
   let type = 'normal';
+  const kc = kamikazeChance(G.round) + (G.curse === 'kami' ? 0.3 : 0);
   if (roll < c.tankChance) type = 'tank'; else if (roll < c.tankChance + c.fastChance) type = 'fast';
-  else if (roll < c.tankChance + c.fastChance + kamikazeChance(G.round) + (G.curse === 'kami' ? 0.3 : 0)) type = 'kamikaze';
+  else if (roll < c.tankChance + c.fastChance + kc) type = 'kamikaze';
+  else if (roll < c.tankChance + c.fastChance + kc + shielderChance(G.round)) type = 'shielder';
   const def = {
     normal:   { hp: 1, r: 18, color: '#ff5d73', vy: c.speed, amp: 30 },
+    shielder: { hp: 1, r: 18, color: '#4ad8ff', vy: c.speed * 0.85, amp: 22 },
     fast:     { hp: 1, r: 15, color: '#ffb020', vy: c.speed * 1.6, amp: 55 },
     tank:     { hp: 2, r: 24, color: '#b07cff', vy: c.speed * 0.7, amp: 15 },
     kamikaze: { hp: 1, r: 16, color: '#ff7a2e', vy: c.speed * 1.2, amp: 0, state: 'seek' },
   }[type];
   const baseX = 60 + Math.random() * (W - 120);
-  const kami = type === 'kamikaze';
+  const kami = type === 'kamikaze' || type === 'shielder';   // Schildgleiter: nie Elite, nie Schütze
   const elite = !kami && Math.random() < eliteChance(G.round) + (G.curse === 'elite' ? 0.35 : 0);
   const gun = !kami && Math.random() < gunChance(G.round) + (G.curse === 'guns' ? 0.35 : 0);
   const hp = def.hp * hpMult(G.round) * (elite ? 2 : 1) * powerScale(POWER_SCALE_ENEMY);
@@ -986,6 +995,58 @@ function spawnEnemy() {
 // dash: stürzt sich mit hohem Tempo auf die erfasste Position. Trifft sie, explodiert sie (−1 Hülle),
 // verfehlt sie, fliegt sie harmlos aus dem Bild. Abgeschossen beschädigt ihre Explosion Gegner in der Nähe.
 const kamikazeChance = r => r >= 6 ? Math.min(0.16, 0.07 + (r - 6) * 0.015) : 0;
+
+// ---------- Schildgleiter (ab Welle 8) ----------
+// Normal großer Gleiter, der bis zu SHIELD_MAX große Gegner (Panzergleiter) in seiner Nähe mit einem
+// Schild verbindet. Solange die Verbindung steht, sind diese unverwundbar. Erst den Schildgleiter
+// abschießen, dann fällt der Schild.
+const SHIELD_R = 260, SHIELD_MAX = 2;
+const shielderChance = r => r >= 8 ? Math.min(0.12, 0.06 + (r - 8) * 0.01) : 0;
+function updateShieldLinks() {
+  for (const e of G.enemies) e.shieldBy = null;
+  for (const s of G.enemies) {
+    if (s.type !== 'shielder' || s.hp <= 0 || s.y < 20) continue;   // erst schützen, wenn er sichtbar (treffbar) ist
+    const near = G.enemies
+      .filter(e => e.type === 'tank' && e.hp > 0 && !e.shieldBy && Math.hypot(e.x - s.x, e.y - s.y) < SHIELD_R)
+      .sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y))
+      .slice(0, SHIELD_MAX);
+    for (const e of near) {
+      if (!e.wasShielded) e.shieldIn = 0;   // neuer Schild baut sich kurz auf (nur Optik)
+      e.shieldBy = s;
+    }
+  }
+  for (const e of G.enemies) {
+    if (e.wasShielded && !e.shieldBy && e.hp > 0) { explode(e.x, e.y, '#4ad8ff', 10); floatText(e.x, e.y - 30, 'Schild weg!', '#4ad8ff'); }
+    e.wasShielded = !!e.shieldBy;
+  }
+}
+// Treffer auf einen geschützten Gegner: abprallen lassen.
+function shieldBlock(e, x, y) {
+  e.shieldHitT = 0.15;
+  explode(x, y, '#4ad8ff', 4);
+  if ((G.shieldSfxT || 0) <= 0) { SFX.clank(); G.shieldSfxT = 0.12; }
+}
+function drawShieldLinks() {
+  const now = performance.now() / 1000;
+  for (const e of G.enemies) {
+    const s = e.shieldBy;
+    if (!s || e.hp <= 0) continue;
+    e.shieldIn = Math.min(1, (e.shieldIn || 0) + 0.06);
+    // Strahl vom Schildgleiter zum Gegner
+    ctx.save();
+    ctx.strokeStyle = `rgba(74,216,255,${0.35 + Math.sin(now * 8) * 0.15})`; ctx.lineWidth = 2;
+    ctx.setLineDash([6, 6]); ctx.lineDashOffset = -now * 40;
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(e.x, e.y); ctx.stroke(); ctx.setLineDash([]);
+    // Schildblase (Sechseck), blitzt bei Treffern auf
+    const r = (e.r + 14) * e.shieldIn, hit = (e.shieldHitT || 0) > 0;
+    ctx.translate(e.x, e.y); ctx.rotate(now * 0.6);
+    ctx.fillStyle = hit ? 'rgba(200,245,255,.35)' : 'rgba(74,216,255,.12)';
+    ctx.strokeStyle = hit ? '#ffffff' : '#4ad8ff'; ctx.lineWidth = 2.5; ctx.shadowColor = '#4ad8ff'; ctx.shadowBlur = 12;
+    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+}
 const KAMI_LOCK_Y = 240, KAMI_LOCK_TIME = 0.7, KAMI_DASH = 470, KAMI_BLAST = 80;
 
 function updateKamikaze(e, dt) {
@@ -1018,6 +1079,7 @@ function kamikazeBlast(e) {
   G.shake = Math.max(G.shake, 0.3);
   for (const o of G.enemies) {
     if (o === e || o.hp <= 0 || Math.hypot(o.x - e.x, o.y - e.y) > KAMI_BLAST) continue;
+    if (o.shieldBy) { shieldBlock(o, o.x, o.y); continue; }
     o.hp -= 1; o.flashT = 0.1;
     if (o.hp <= 0) killEnemy(o);
   }
@@ -1226,6 +1288,7 @@ function updateOrbit(dt) {
     }
     for (const e of G.enemies) {   // Gegner bei Berührung beschädigen (kurze Pause je Gegner)
       if (e.hp <= 0 || (e.orbitCd || 0) > 0 || Math.hypot(e.x - d.x, e.y - d.y) > e.r + ORBIT_HIT) continue;
+      if (e.shieldBy) { e.orbitCd = 0.35; shieldBlock(e, d.x, d.y); continue; }
       e.orbitCd = 0.35; e.hp -= 1 * (1 + 0.35 * upLv('dmg')); e.flashT = 0.08;
       explode(d.x, d.y, '#a78bfa', 6);
       if (e.hp <= 0) killEnemy(e); else SFX.hit();
@@ -1328,7 +1391,7 @@ function updateBullets(dt) {
     if (homing) {   // Upgrade Zielsuchkopf: zum nächsten Gegner oberhalb lenken
       let best = null, bd = 260;
       for (const e of G.enemies) {
-        if (e.hp <= 0 || e.y > b.y || (b.done && b.done.has(e))) continue;
+        if (e.hp <= 0 || e.shieldBy || e.y > b.y || (b.done && b.done.has(e))) continue;
         const d = Math.hypot(e.x - b.x, e.y - b.y);
         if (d < bd) { bd = d; best = e; }
       }
@@ -1343,7 +1406,7 @@ function updateBullets(dt) {
 
 function killEnemy(e, byBomb = false) {
   G.kills++;
-  const typeMult = (e.type === 'tank' ? 2 : e.type === 'fast' || e.type === 'kamikaze' ? 1.5 : 1) * (e.elite ? 2 : 1) * (e.gun ? 1.5 : 1);
+  const typeMult = (e.type === 'tank' ? 2 : e.type === 'fast' || e.type === 'kamikaze' || e.type === 'shielder' ? 1.5 : 1) * (e.elite ? 2 : 1) * (e.gun ? 1.5 : 1);
   if (e.type === 'kamikaze') kamikazeBlast(e);
   const pts = Math.round(10 * G.round * typeMult * comboMult());
   G.score += pts;
@@ -1383,13 +1446,17 @@ function updateShoot(dt) {
     e.y += e.vy * dt;
     e.x = Math.max(e.r, Math.min(W - e.r, e.baseX + Math.sin(e.t * (e.type === 'fast' ? 2.6 : 1.4)) * e.amp));
   }
+  for (const e of G.enemies) { e.shieldHitT = (e.shieldHitT || 0) - dt; e.bumpT = (e.bumpT || 0) - dt; }
+  G.shieldSfxT = (G.shieldSfxT || 0) - dt;
+  updateShieldLinks();
   updateGunners(dt);
   if (G.ghost) updateGhost(dt);
   updateEnemyShots(dt);
 
   for (const b of G.bullets) {
     for (const e of G.enemies) {
-      if (e.hp > 0 && !b.hit && !(b.done && b.done.has(e)) && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 8) {
+      if (e.hp > 0 && !b.hit && !(b.done && b.done.has(e)) && Math.hypot(b.x - e.x, b.y - e.y) < e.r + (e.shieldBy ? 22 : 8)) {
+        if (e.shieldBy) { b.hit = true; shieldBlock(e, b.x, b.y); continue; }   // Schild: Schuss prallt ab
         e.hp -= hitDamage(b); e.flashT = 0.08; G.combo++;
         // Upgrade Durchschlag: Schuss fliegt weiter, trifft denselben Gegner aber nicht nochmal.
         if (b.pierce > 0) { b.pierce--; (b.done = b.done || new Set()).add(e); } else b.hit = true;
@@ -1409,6 +1476,10 @@ function updateShoot(dt) {
     }
     // Zusammenstoß mit dem Schiff (seit man nach oben fliegen kann): Gegner platzt, Schiff nimmt Schaden.
     if (e.type !== 'bonus' && e.type !== 'kamikaze' && Math.hypot(e.x - G.player.x, e.y - G.player.y) < e.r + 16) {
+      if (e.shieldBy) {   // geschützter Gegner bleibt heil, Schiff nimmt trotzdem Schaden (nur einmal pro Sekunde)
+        if (e.bumpT <= 0) { e.bumpT = 1; shieldBlock(e, (e.x + G.player.x) / 2, (e.y + G.player.y) / 2); playerHit(); }
+        continue;
+      }
       e.hp = 0; explode(e.x, e.y, '#ff7a2e', 16); playerHit(); continue;
     }
     if (e.type !== 'bonus' && e.y > H + 20) {
@@ -2152,6 +2223,12 @@ function arcadeBossFight(dt) {
     B.fireT = B.fire * Math.max(0.55, 1 - G.round * 0.03);
   }
 
+  const hitCore = (b, c, p) => {
+    c.hp -= hitDamage(b) * (currentSkin().bossDmg || 1); c.flashT = 0.08;
+    if (b.crit) { floatText(p.x, p.y - 10, 'Krit!', '#ffd84a'); b.crit = false; }
+    G.score += 5 * G.round;
+    if (c.hp <= 0) coreDestroyed(B, p);
+  };
   for (const b of G.bullets) {
     for (const c of B.cores) {
       if (c.hp <= 0) continue;
@@ -2159,11 +2236,8 @@ function arcadeBossFight(dt) {
       if (Math.hypot(b.x - p.x, b.y - p.y) > p.r + 6) continue;
       b.hit = true;
       if (coreOpen(B, c)) {
-        c.hp -= hitDamage(b) * (currentSkin().bossDmg || 1); c.flashT = 0.08;
-        if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
-        G.score += 5 * G.round;
+        hitCore(b, c, p);
         explode(b.x, b.y, '#fff', 4); SFX.hit();
-        if (c.hp <= 0) coreDestroyed(B, p);
       } else { explode(b.x, b.y, '#8f9ac4', 3); SFX.clank(); }
       break;
     }
@@ -2279,17 +2353,17 @@ function animateField(target, ms = 1200) {
 // ---------- Sektorboss ----------
 // Am Ende jedes Sektors. Pro Sektor kommt der nächste Boss aus der Liste (danach wieder von vorne).
 // Rammbock: folgt dem Schiff oben, warnt kurz (rote Spalte), stürzt sich dann nach unten und
-// fährt wieder hoch. Ausweichen! Phase 2 ab 50 % Leben: schießt Salven und stößt unzerstörbare
+// fährt wieder hoch. Ausweichen! Phase 2 ab 2/3 Leben: schießt Salven und stößt unzerstörbare
 // Drohnen aus, die links und rechts Wände bilden und das Spielfeld bis auf die Hälfte verkleinern.
 // Ab 25 % stürzt er sich zusätzlich doppelt herab.
 // Stahlring: schließt das Schiff ein, 6 Module mit eigenen Angriffen drehen sich mit dem Ring.
 // Nur Module, die gerade oben vorbeikommen, sind erreichbar. Danach ist der Ring selbst verwundbar.
 const BIG_BOSSES = [
   { id: 'rammer', name: 'RAMMBOCK', color: '#ff3355', hp: 190, desc: 'Folgt dir und rammt dann von oben auf dich herab. Ausweichen!' },
-  { id: 'ring', name: 'STAHLRING', color: '#ffc94a', hp: 0, modHp: 11, ringHp: 45,
+  { id: 'ring', name: 'STAHLRING', color: '#ffc94a', hp: 0, modHp: 18, ringHp: 74,
     desc: 'Schließt dich ein. Nur der obere Geschützturm ist verwundbar: Zerstöre alle 6, dann den Ring selbst.' },
-  { id: 'bastion', name: 'BASTION', color: '#b07cff', hp: 0, coreHpBase: 16, bossHpBase: 55,
-    desc: 'Unverwundbar hinter ihrem Schild. Drohnenwände sperren abwechselnd Mitte und Seiten: Zerstöre die Kerne in der freien Bahn.' },
+  { id: 'bastion', name: 'BASTION', color: '#b07cff', hp: 0, coreHpBase: 17, bossHpBase: 70,
+    desc: 'Eine Festungsmauer über die ganze Breite. Jedes Drittel hat einen Kern und schießt auf dich, wenn du darunter bist. Drohnenwände sperren Bahnen: Zerstöre die Kerne in der freien Bahn.' },
 ];
 const bigBossDef = () => BIG_BOSSES[((G.sector || 1) - 1) % BIG_BOSSES.length];
 const BB_W = 92, BB_H = 58, BB_TOP = 150;   // halbe Breite/Höhe, Ruheposition oben
@@ -2327,7 +2401,7 @@ function startBigBoss(forcedId) {
     });
 }
 
-const bigPhase = B => B.hp / B.maxHp < 0.25 ? 3 : B.hp / B.maxHp <= 0.5 ? 2 : 1;
+const bigPhase = B => B.hp / B.maxHp < 0.25 ? 3 : B.hp / B.maxHp <= 2 / 3 ? 2 : 1;
 
 // Phase 2: Drohnen ausstoßen, die zu ihrer Wandspalte fliegen. Abwechselnd links/rechts.
 function updateBossDrones(B, dt) {
@@ -2455,6 +2529,9 @@ async function bigBossDefeated() {
   if (B.id === 'ring') {   // der ganze Ring zerfällt
     for (let k = 0; k < 18; k++) { const a = k * Math.PI / 9; explode(B.x + Math.cos(a) * B.r, B.y + Math.sin(a) * B.r, k % 2 ? '#ffc94a' : '#ff7a2e', 24); }
     B.mines = []; B.laser = null;
+  }
+  if (B.id === 'bastion') {   // die ganze Mauer bricht zusammen
+    for (let k = 0; k < 24; k++) explode((k + 0.5) * W / 24, B.y + 60 + Math.random() * 200, k % 2 ? '#b07cff' : '#ff7a2e', 22);
   }
   // Drohnenwände explodieren mit.
   for (const side of ['L', 'R']) for (let i = 0; i < (side === 'L' ? B.colsL : B.colsR); i++) {
@@ -2695,6 +2772,11 @@ function updateRingBoss(dt) {
 
   // Treffer: Minen blocken. Am Ring zählen die Türme der oberen Gruppe (bzw. am Ende der Ring selbst).
   const mult = currentSkin().bossDmg || 1, targets = B.mods.filter(m => modTarget(B, m));
+  const hitMod = (b, m, dmg) => {
+    m.hp -= dmg; m.flashT = 0.06; G.score += 3 * G.round;
+    if (b.crit) { floatText(b.x, b.y - 10, 'Krit!', '#ffd84a'); b.crit = false; }
+    if (m.hp <= 0) moduleDestroyed(B, m);
+  };
   for (const b of G.bullets) {
     if (B.mines.some(mi => Math.hypot(mi.x - b.x, mi.y - b.y) < 16)) { b.hit = true; explode(b.x, b.y, '#b07cff', 3); continue; }
     if (B.state === 'enter') continue;
@@ -2705,10 +2787,8 @@ function updateRingBoss(dt) {
     b.hit = true;
     const dmg = hitDamage(b) * mult;
     if (onTop) {
-      top.hp -= dmg; top.flashT = 0.06; G.score += 3 * G.round;
-      if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
       explode(b.x, b.y, '#ffffff', 3);
-      if (top.hp <= 0) moduleDestroyed(B, top);
+      hitMod(b, top, dmg);
     } else if (B.final) {
       B.ringHp -= dmg; B.flashT = 0.06; G.score += 3 * G.round;
       if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
@@ -2730,8 +2810,9 @@ function moduleDestroyed(B, m) {
   if (B.laser && B.laser.m === m) B.laser = null;
   if (B.mods.every(mm => mm.hp <= 0)) {
     B.final = true; B.burstT = 1.5;
-    floatText(W / 2, H / 2 - 60, 'Der Ring ist verwundbar!', '#ffc94a');
-    SFX.alarm();
+    floatText(W / 2, H / 2 + 40, 'PHASE 2!', '#ff3355');
+    floatText(W / 2, H / 2 + 90, 'Der Ring ist verwundbar!', '#ffc94a');
+    G.shake = 0.5; SFX.alarm();
   } else if (B.mods.filter(mm => Math.sin(modPos(B, mm).a) < -0.6).every(mm => mm.hp <= 0)) {
     // obere Gruppe komplett zerstört: halbe Umdrehung im Uhrzeigersinn, die zweite Gruppe kommt
     B.state = 'turn'; B.rotTarget = B.rot + Math.PI;
@@ -2900,27 +2981,61 @@ function drawRingBoss(B) {
 }
 
 // ---------- Sektorboss 3: Bastion ----------
-// Die Bastion steht oben fest in der Mitte und ist hinter ihrem Schild unverwundbar. Das breite
-// Spielfeld ist in drei Bahnen geteilt (L, M, R). Drohnenwände sperren abwechselnd Bahnen: Bevor
-// eine Wand fällt, blinkt die Bahn rot (LANE_WARN s). Wer drin ist, wenn sie landet, nimmt Schaden
-// und wird hinausgeschoben. Ablauf:
-//   1. L+R zu, Kern in M  →  2. M zu, Kern auf der Seite, auf der man steht (A)
-//   3. L+R zu, Kern in M  →  4. M zu, Kern auf der anderen Seite (B)
-//   5. Schild bricht: die Bastion selbst ist verwundbar, zufällig schließen sich 1 oder 2 Bahnen.
-const LANE_WARN = 1.6, LANE_DROP = 0.8, LANE_RISE = 0.6, BASTION_Y = 175;
+// Die Bastion ist eine riesige Festungsmauer, die oben über die ganze Breite geht. Das breite
+// Spielfeld ist in drei Bahnen geteilt (L, M, R). Jedes Mauer-Drittel hat unten einen gepanzerten
+// Kern und zwei Geschütze – geschossen wird nur aus dem Drittel, in dem das Schiff gerade ist.
+// Drohnenwände sperren Bahnen: Bevor eine Wand fällt, blinkt die Bahn rot (LANE_WARN s). Wer drin
+// ist, wenn sie landet, nimmt Schaden und wird hinausgeschoben. Ablauf:
+//   1. L+R zu, Kern in M offen  →  2. M zu, Kern auf der Seite, auf der man steht (A)
+//   3. A zu, Kern auf der anderen Seite (B)
+//   4. Hauptkern fährt in der Mitte aus und ist verwundbar, zufällig schließen sich 1 oder 2 Bahnen.
+const LANE_WARN = 1.6, LANE_DROP = 0.8, LANE_RISE = 0.6;
+const BASTION_CORE_Y = 290, BASTION_EYE_Y0 = 150, BASTION_EYE_Y1 = 272, BASTION_GUN = 115;
+const LANES = ['L', 'M', 'R'];
 const laneX0 = l => ({ L: 0, M: W / 3, R: W * 2 / 3 })[l];
 const laneOf = x => x < W / 3 ? 'L' : x < W * 2 / 3 ? 'M' : 'R';
-const coreSpot = l => ({ x: laneX0(l) + W / 6, y: l === 'M' ? 350 : 310 });
+const laneMid = l => laneX0(l) + W / 6;
+const coreSpot = l => ({ x: laneMid(l), y: BASTION_CORE_Y });
+
+// Unterkante der Mauer (ohne Einfahr-Versatz B.y) als Punkte von links nach rechts:
+// pro Drittel ein Kerngehäuse, das nach unten ragt, dazwischen Stützpfeiler.
+function bastionEdge() {
+  const pts = [[0, 205]];
+  for (const l of LANES) {
+    const c = laneMid(l);
+    pts.push([c - 170, 205], [c - 80, 205], [c - 55, 250], [c - 30, 292], [c + 30, 292], [c + 55, 250], [c + 80, 205], [c + 170, 205]);
+    if (l !== 'R') { const b = c + 200; pts.push([b - 18, 250], [b, 266], [b + 18, 250]); }
+  }
+  pts.push([W, 205]);
+  return pts;
+}
+function edgeY(B, x) {
+  const e = B.edge;
+  for (let i = 1; i < e.length; i++) {
+    if (x <= e[i][0]) { const [x0, y0] = e[i - 1], [x1, y1] = e[i]; return y0 + (y1 - y0) * (x - x0) / Math.max(1, x1 - x0); }
+  }
+  return e[e.length - 1][1];
+}
+// Geschütz eines Drittels (side 0 = links, 1 = rechts), Mündung in Zielrichtung.
+function bastionGun(B, l, side) {
+  const x = laneMid(l) + (side ? BASTION_GUN : -BASTION_GUN), y = B.y + 212, a = B.seg[l].aim;
+  return { x: x + Math.cos(a) * 36, y: y + Math.sin(a) * 36 };
+}
+const bastionEye = B => ({ x: W / 2, y: B.y + BASTION_EYE_Y0 + (BASTION_EYE_Y1 - BASTION_EYE_Y0) * B.eyeK });
 
 function initBastion(B, mult) {
-  B.x = W / 2; B.y = -170; B.state = 'enter';
+  B.x = W / 2; B.y = -340; B.state = 'enter';   // B.y = Versatz der Mauer beim Einfahren (0 = angekommen)
+  B.edge = bastionEdge();
   B.coreHp = Math.round(B.coreHpBase * mult);
   B.bossHp = B.bossMax = Math.round(B.bossHpBase * mult);
   B.lanes = { L: { k: 0, target: 0, warnT: 0 }, M: { k: 0, target: 0, warnT: 0 }, R: { k: 0, target: 0, warnT: 0 } };
-  B.cores = []; B.coresDone = 0; B.stage = 0; B.shield = true;
+  // Mauer-Drittel: Kern 'closed' (gepanzert) → 'open' (verwundbar) → 'dead' (zerstört)
+  B.seg = {};
+  for (const l of LANES) B.seg[l] = { core: 'closed', open: 0, aim: Math.PI / 2, flashT: 0 };
+  B.cores = []; B.coresDone = 0; B.stage = 0; B.shield = true; B.eyeK = 0;
   B.closing = []; B.onLanded = null; B.sideA = null; B.sideB = null;
-  B.fireT = 2.5; B.spreadT = 5; B.finalPhase = null; B.finalT = 0;
-  B.maxHp = B.coreHp * 4 + B.bossHp; B.hp = B.maxHp;
+  B.fireT = 2.5; B.gunSide = 0; B.spreadT = 5; B.fireLane = null; B.finalPhase = null; B.finalT = 0; B.finalMid = true;   // erste Sperre in der Endphase: Seiten
+  B.maxHp = B.coreHp * 3 + B.bossHp; B.hp = B.maxHp;
 }
 
 function closeLanes(B, lanes, warn, cb) {
@@ -2932,8 +3047,10 @@ function openLanes(B, lanes) { for (const l of lanes) { B.lanes[l].target = 0; B
 
 function spawnCore(B, lane) {
   const s = coreSpot(lane);
+  B.seg[lane].core = 'open';
   B.cores.push({ lane, x: s.x, y: s.y, hp: B.coreHp, maxHp: B.coreHp, flashT: 0, t: 0 });
-  floatText(s.x, s.y + 50, 'Kern freigelegt!', '#ffe14a');
+  floatText(s.x, s.y + 60, 'Kern freigelegt!', '#ffe14a');
+  SFX.clank();
 }
 
 // Wand gelandet: Wer noch in der Bahn ist, nimmt Schaden und wird in die nächste freie Bahn geschoben.
@@ -2947,12 +3064,11 @@ function laneLanded(B, l) {
       const x0 = laneX0(o), tx = Math.max(x0 + 40, Math.min(x0 + W / 3 - 40, p.x)), d = Math.abs(tx - p.x);
       if (d < bd) { bd = d; best = tx; }
     }
-    if (best !== null) { p.x = best; explode(p.x, p.y, '#ff3355', 14); }
+    if (best !== null) { p.x = best; pointer.tx = best; explode(p.x, p.y, '#ff3355', 14); }
   }
-  explode(laneX0(l) + W / 6, H - 20, '#ff3355', 10);
+  explode(laneMid(l), H - 20, '#ff3355', 10);
   SFX.clank();
 }
-const LANES = ['L', 'M', 'R'];
 
 // Nächster Abschnitt, sobald ein Kern zerstört ist.
 function bastionNext(B) {
@@ -2961,31 +3077,29 @@ function bastionNext(B) {
     openLanes(B, ['L', 'R']);
     closeLanes(B, ['M'], LANE_WARN, () => { B.sideA = laneOf(p.x) === 'R' ? 'R' : 'L'; spawnCore(B, B.sideA); B.stage = 2; });
   } else if (B.stage === 2) {
-    openLanes(B, ['M']);
-    closeLanes(B, ['L', 'R'], LANE_WARN, () => { spawnCore(B, 'M'); B.stage = 3; });
-  } else if (B.stage === 3) {
     B.sideB = B.sideA === 'L' ? 'R' : 'L';
-    openLanes(B, [B.sideB]);
-    closeLanes(B, ['M'], LANE_WARN, () => { spawnCore(B, B.sideB); B.stage = 4; });
-  } else if (B.stage === 4) {
-    openLanes(B, ['M']);
-    closeLanes(B, [B.sideB], LANE_WARN, () => {
-      B.shield = false; B.stage = 5; B.finalPhase = 'hold'; B.finalT = 3;
-      floatText(W / 2, 300, 'Schild gebrochen!', '#ffe14a'); SFX.coreBreak(); G.shake = 0.6;
-      for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8; explode(B.x + Math.cos(a) * 130, B.y + Math.sin(a) * 95, '#8fb4ff', 6); }
-    });
+    openLanes(B, ['M', B.sideB]);
+    closeLanes(B, [B.sideA], LANE_WARN, () => { spawnCore(B, B.sideB); B.stage = 3; });
+  } else if (B.stage === 3) {
+    openLanes(B, LANES);
+    B.shield = false; B.stage = 4; B.finalPhase = 'hold'; B.finalT = 2.5;
+    floatText(W / 2, H / 2 + 40, 'PHASE 2!', '#ff3355');
+    floatText(W / 2, H / 2 + 90, 'Hauptkern fährt aus!', '#ffe14a'); SFX.coreBreak(); SFX.alarm(); G.shake = 0.6;
+    for (let k = 0; k < 10; k++) explode(W / 2 + (k - 4.5) * 22, B.y + 230 + Math.random() * 50, k % 2 ? '#8fb4ff' : '#b07cff', 8);
   }
 }
 
-// Letzte Phase: Bahnen öffnen, dann zufällig 1 oder 2 der 3 Bahnen schließen, halten, wieder öffnen.
+// Letzte Phase: Bahnen öffnen, dann abwechselnd die Mitte (zieht einen vom Hauptkern weg, ein paar
+// Sekunden) und die Seiten (links, rechts oder beide) schließen, halten, wieder öffnen.
 function bastionFinal(B, dt) {
   B.finalT -= dt;
   if (B.finalT > 0 || B.onLanded) return;
   if (B.finalPhase === 'hold') {
     openLanes(B, LANES); B.finalPhase = 'open'; B.finalT = 2.2;
   } else {
-    const n = Math.random() < 0.55 ? 1 : 2, shut = shuffle(LANES.slice()).slice(0, n);
-    closeLanes(B, shut, LANE_WARN, () => { B.finalPhase = 'hold'; B.finalT = 3.5; });
+    B.finalMid = !B.finalMid;
+    const r = Math.random(), shut = B.finalMid ? ['M'] : r < 0.35 ? ['L'] : r < 0.7 ? ['R'] : ['L', 'R'];
+    closeLanes(B, shut, LANE_WARN, () => { B.finalPhase = 'hold'; B.finalT = B.finalMid ? 3 : 3.5; });
   }
 }
 
@@ -2997,12 +3111,25 @@ function updateBastion(dt) {
   B.t += dt; B.flashT -= dt;
 
   if (B.state === 'enter') {
-    B.y = Math.min(BASTION_Y, B.y + 160 * dt);
-    if (B.y >= BASTION_Y) {
-      B.state = 'fight';
+    B.y = Math.min(0, B.y + 220 * dt);
+    if (B.y >= 0) {
+      B.state = 'fight'; G.shake = 0.5; SFX.clank();
       closeLanes(B, ['L', 'R'], 1.2, () => { spawnCore(B, 'M'); B.stage = 1; });
     }
   }
+  for (const l of LANES) {
+    const S = B.seg[l];
+    S.open = S.core === 'closed' ? 0 : Math.min(1, S.open + dt * 2.5);
+    S.flashT -= dt;
+    // Geschütze zielen nur im Drittel des Schiffs, sonst zeigen sie nach unten.
+    const want = B.state === 'fight' && laneOf(p.x) === l
+      ? Math.atan2(p.y - (B.y + 212), p.x - laneMid(l)) : Math.PI / 2;
+    S.aim += (want - S.aim) * Math.min(1, dt * 6);
+    if (S.core === 'dead' && Math.random() < dt * 4) {   // zerstörtes Drittel qualmt
+      G.parts.push({ x: laneMid(l) + (Math.random() - 0.5) * 40, y: B.y + 280, vx: (Math.random() - 0.5) * 20, vy: 30 + Math.random() * 30, life: 0.8, color: Math.random() < 0.5 ? '#5a5f73' : '#ff7a2e' });
+    }
+  }
+  if (!B.shield) B.eyeK = Math.min(1, B.eyeK + dt / 1.2);
 
   // Wände bewegen; Landung prüfen.
   for (const l of LANES) {
@@ -3021,56 +3148,69 @@ function updateBastion(dt) {
   while (hi < 2 && free(order[hi + 1])) hi++;
   G.wallL = laneX0(order[lo]); G.wallR = W - (laneX0(order[hi]) + W / 3);
 
-  if (B.stage === 5) bastionFinal(B, dt);
+  if (B.stage === 4) bastionFinal(B, dt);
 
-  // Angriffe (die Bastion selbst bewegt sich nicht)
+  // Angriffe: nur das Mauer-Drittel, in dem das Schiff ist, schießt.
   if (B.state === 'fight') {
-    const fin = B.stage === 5;
+    const fin = !B.shield, l = laneOf(p.x), S = B.seg[l], dead = S.core === 'dead';
+    if (l !== B.fireLane) { B.fireLane = l; B.fireT = Math.max(B.fireT, 0.6); }   // kurz Luft beim Bahnwechsel
     B.fireT -= dt;
     if (B.fireT <= 0) {
-      const sx = B.x, sy = B.y + 66, a = Math.atan2(p.y - sy, p.x - sx);
-      G.shots.push({ x: sx, y: sy, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, color: '#c77dff' });
-      B.fireT = fin ? 1.1 : 1.6; SFX.enemyShot();
+      B.gunSide ^= 1;
+      const g = bastionGun(B, l, B.gunSide), a = Math.atan2(p.y - g.y, p.x - g.x);
+      G.shots.push({ x: g.x, y: g.y, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, color: '#c77dff' });
+      B.fireT = (fin ? 1.0 : 1.4) * (dead ? 1.6 : 1); S.flashT = 0.12; SFX.enemyShot();
     }
     B.spreadT -= dt;
     if (B.spreadT <= 0) {
-      for (const sx of [B.x - 70, B.x + 70]) {
-        const a = Math.atan2(p.y - (B.y + 40), p.x - sx);
-        for (const s of [-0.3, -0.15, 0, 0.15, 0.3]) G.shots.push({ x: sx, y: B.y + 40, vx: Math.cos(a + s) * 200, vy: Math.sin(a + s) * 200, color: '#ffd84a' });
+      if (!dead) {   // ein Fächer, abwechselnd aus dem linken und rechten Geschütz des Drittels
+        B.spreadSide = B.spreadSide ? 0 : 1;
+        const g = bastionGun(B, l, B.spreadSide), a = Math.atan2(p.y - g.y, p.x - g.x);
+        for (const s of [-0.3, -0.15, 0, 0.15, 0.3]) G.shots.push({ x: g.x, y: g.y, vx: Math.cos(a + s) * 200, vy: Math.sin(a + s) * 200, color: '#ffd84a' });
+        S.flashT = 0.2; SFX.enemyShot();
       }
-      B.spreadT = fin ? 4 : 5.5; SFX.enemyShot();
+      B.spreadT = fin ? 4 : 5.5;
     }
   }
 
   // Treffer
-  const mult = currentSkin().bossDmg || 1;
-  for (const b of G.bullets) {
-    if (b.x < G.wallL || b.x > W - G.wallR) { b.hit = true; explode(b.x, b.y, '#8f9ac4', 3); continue; }   // Wand
-    const c = B.cores.find(cc => cc.hp > 0 && Math.hypot(b.x - cc.x, b.y - cc.y) < 30);
-    if (c) {
-      b.hit = true; c.hp -= hitDamage(b) * mult; c.flashT = 0.06; G.score += 3 * G.round;
-      if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
-      explode(b.x, b.y, '#ffffff', 3);
-      if (c.hp <= 0) {
-        explode(c.x, c.y, '#ffe14a', 34); explode(c.x, c.y, '#b07cff', 18);
-        floatText(c.x, c.y + 50, 'Kern zerstört!', '#ffe14a');
-        SFX.coreBreak(); G.shake = 0.5; G.score += 100 * G.round;
-        B.cores = B.cores.filter(cc => cc !== c); B.coresDone++;
-        bastionNext(B);
+  const mult = currentSkin().bossDmg || 1, eye = bastionEye(B);
+  const eyeOpen = !B.shield && B.eyeK > 0.5;
+  const hitEye = b => {
+    B.bossHp -= hitDamage(b) * mult; B.flashT = 0.06; G.score += 3 * G.round;
+    if (b.crit) { floatText(b.x, b.y - 10, 'Krit!', '#ffd84a'); b.crit = false; }
+  };
+  const hitCore = (b, c) => {
+    c.hp -= hitDamage(b) * mult; c.flashT = 0.06; G.score += 3 * G.round;
+    if (b.crit) { floatText(b.x, b.y - 10, 'Krit!', '#ffd84a'); b.crit = false; }
+    if (c.hp <= 0) {
+      explode(c.x, c.y, '#ffe14a', 34); explode(c.x, c.y, '#b07cff', 18);
+      floatText(c.x, c.y + 60, 'Kern zerstört!', '#ffe14a');
+      SFX.coreBreak(); G.shake = 0.5; G.score += 100 * G.round;
+      B.seg[c.lane].core = 'dead';
+      B.cores = B.cores.filter(cc => cc !== c); B.coresDone++;
+      bastionNext(B);
+      // Jeder Kern lässt ein Power-up fallen. Wird seine Bahn gleich gesperrt, treibt es in die
+      // nächste offene Bahn (die dem Schiff am nächsten), damit man es noch einsammeln kann.
+      const nDrops = G.drops.length;
+      maybeDrop({ type: 'core', x: c.x, y: B.y + c.y + 20 }, 1);
+      if (G.drops.length > nDrops && B.lanes[c.lane].target) {
+        const open = LANES.filter(l => !B.lanes[l].target).sort((l1, l2) => Math.abs(laneMid(l1) - p.x) - Math.abs(laneMid(l2) - p.x));
+        if (open.length) G.drops[G.drops.length - 1].vx = (laneMid(open[0]) - c.x) * 1.6;
       }
-      continue;
     }
-    const ex = (b.x - B.x) / 135, ey = (b.y - B.y) / 100;
-    if (B.shield && ex * ex + ey * ey < 1) { b.hit = true; explode(b.x, b.y, '#8fb4ff', 3); continue; }   // Schild
-    if (!B.shield && Math.abs(b.x - B.x) < 120 && Math.abs(b.y - B.y) < 62) {
-      b.hit = true; B.bossHp -= hitDamage(b) * mult; B.flashT = 0.06; G.score += 3 * G.round;
-      if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
-      explode(b.x, b.y, '#ffffff', 3);
-    }
+  };
+  for (const b of G.bullets) {
+    const wall = b.x < G.wallL || b.x > W - G.wallR, armor = b.y < B.y + edgeY(B, b.x);
+    if (wall) { b.hit = true; explode(b.x, b.y, '#8f9ac4', 3); continue; }   // Drohnenwand
+    const c = B.cores.find(cc => cc.hp > 0 && Math.hypot(b.x - cc.x, b.y - (B.y + cc.y)) < 30);
+    if (c) { b.hit = true; explode(b.x, b.y, '#ffffff', 3); hitCore(b, c); continue; }
+    if (eyeOpen && Math.hypot(b.x - eye.x, b.y - eye.y) < 42) { b.hit = true; explode(b.x, b.y, '#ffffff', 3); hitEye(b); continue; }
+    if (armor) { b.hit = true; explode(b.x, b.y, '#8fb4ff', 3); }   // Panzerung der Mauer
   }
   G.bullets = G.bullets.filter(b => !b.hit && b.y > -20 && b.x > -20 && b.x < W + 20);
   for (const c of B.cores) { c.flashT -= dt; c.t += dt; }
-  const pending = 4 - B.coresDone - B.cores.length;
+  const pending = 3 - B.coresDone - B.cores.length;
   B.hp = Math.max(0, pending) * B.coreHp + B.cores.reduce((s, c) => s + Math.max(0, c.hp), 0) + Math.max(0, B.bossHp);
 
   if (G.hull <= 0 && !tryRevive()) return gameOver();
@@ -3079,8 +3219,9 @@ function updateBastion(dt) {
 
 // ---------- Bastion zeichnen (Neon-Stil wie der Rest) ----------
 function drawBastion(B) {
-  const blink = Math.floor(performance.now() / 120) % 2, c = B.flashT > 0 ? '#ffffff' : B.color;
-  // Bahnen: Warnung und Drohnenwände
+  const blink = Math.floor(performance.now() / 120) % 2, c = B.color, p = G.player;
+  const active = B.state === 'fight' ? laneOf(p.x) : null;
+  // Bahnen: Warnung und Drohnenwände (die Drohnen kommen unter der Mauer hervor)
   for (const l of LANES) {
     const L = B.lanes[l], x0 = laneX0(l), w = W / 3;
     if (L.target === 1 && L.warnT > 0) {
@@ -3091,8 +3232,8 @@ function drawBastion(B) {
     if (L.k > 0) {
       ctx.fillStyle = `rgba(255,51,85,${0.08 * L.k})`; ctx.fillRect(x0, 0, w, H);
       for (let cx = x0 + 34, ci = 0; cx < x0 + w - 10; cx += 66, ci++) {
-        for (let y = 70 + (ci % 2) * 30; y < H; y += 62) {
-          const yy = -40 + (y + 40) * L.k;
+        for (let y = 250 + (ci % 2) * 30; y < H; y += 62) {
+          const yy = 200 + (y - 200) * L.k;
           drawMiniDrone(cx, yy + Math.sin(B.t * 3 + cx + y) * 3, B.t + ci, false);
         }
       }
@@ -3103,59 +3244,121 @@ function drawBastion(B) {
       }
     }
   }
-  // Verbindungsleitungen zu den Kernen
-  for (const k of B.cores) {
-    ctx.strokeStyle = 'rgba(176,124,255,.55)'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(B.x, B.y + 30); ctx.quadraticCurveTo((B.x + k.x) / 2, k.y - 40, k.x, k.y); ctx.stroke();
-    ctx.strokeStyle = `rgba(255,225,74,${0.4 + Math.sin(B.t * 6) * 0.3})`; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(B.x, B.y + 30); ctx.quadraticCurveTo((B.x + k.x) / 2, k.y - 40, k.x, k.y); ctx.stroke();
-  }
-  // Rumpf: breite Festung, dunkle Fläche, Neonkante
-  ctx.save(); ctx.translate(B.x, B.y);
-  const hullPts = [[-130, -50], [-60, -66], [60, -66], [130, -50], [150, -10], [110, 38], [44, 62], [-44, 62], [-110, 38], [-150, -10]];
-  ctx.fillStyle = '#1c1430'; ctx.strokeStyle = c; ctx.lineWidth = 4; ctx.shadowColor = c; ctx.shadowBlur = 20;
-  ctx.beginPath(); hullPts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
-  ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
-  // Panzerplatten und Türme
-  ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 2;
+
+  ctx.save(); ctx.translate(0, B.y);
+  const e = B.edge, TOP = -400;
+  // Mauerkörper: dunkle Fläche über die ganze Breite, Neonkante unten
+  ctx.fillStyle = '#1c1430';
+  ctx.beginPath(); ctx.moveTo(0, TOP); for (const [x, y] of e) ctx.lineTo(x, y); ctx.lineTo(W, TOP); ctx.closePath(); ctx.fill();
+  // Panzerplatten: versetzte Fugen in zwei Reihen
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(0, TOP); for (const [x, y] of e) ctx.lineTo(x, y); ctx.lineTo(W, TOP); ctx.closePath(); ctx.clip();
+  ctx.strokeStyle = 'rgba(255,255,255,.13)'; ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(-130, -30); ctx.lineTo(130, -30);
-  ctx.moveTo(-60, -66); ctx.lineTo(-50, 62); ctx.moveTo(60, -66); ctx.lineTo(50, 62);
-  ctx.moveTo(-150, -10); ctx.lineTo(-100, 10); ctx.moveTo(150, -10); ctx.lineTo(100, 10);
+  for (const y of [40, 110, 175]) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  for (let x = 0; x <= W; x += 120) { ctx.moveTo(x, 40); ctx.lineTo(x, 110); ctx.moveTo(x + 60, 110); ctx.lineTo(x + 60, 175); }
+  for (let x = 30; x <= W; x += 60) { ctx.moveTo(x, -60); ctx.lineTo(x, 40); }
   ctx.stroke();
-  ctx.fillStyle = c;
-  for (const sx of [-70, 70]) { ctx.fillRect(sx - 6, 36, 12, 18); ctx.fillStyle = '#ffffffcc'; ctx.fillRect(sx - 6, 50, 12, 4); ctx.fillStyle = c; }
-  ctx.fillRect(-7, 56, 14, 16);
-  for (const lx of [-110, -40, 40, 110]) {
-    const on = Math.sin(B.t * 5 + lx) > 0;
-    ctx.fillStyle = on ? c : '#3a2a5a'; if (on) { ctx.shadowColor = c; ctx.shadowBlur = 8; }
-    ctx.beginPath(); ctx.arc(lx, -44, 3, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
-  }
-  // Auge / Hauptkern: geschützt blau-gedämpft, offen gelb leuchtend
-  const eye = B.shield ? '#5a6fa8' : (B.flashT > 0 ? '#ffffff' : '#ffe14a');
-  ctx.fillStyle = '#0d0a1a'; ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = eye; ctx.shadowColor = eye; ctx.shadowBlur = B.shield ? 6 : 26;
-  ctx.beginPath(); ctx.arc(0, 0, 18 + (B.shield ? 0 : Math.sin(B.t * 6) * 2), 0, Math.PI * 2); ctx.fill();
-  ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.ellipse(-5, -5, 4, 6, 0, 0, Math.PI * 2); ctx.fill();
-  // Schild
-  if (B.shield) {
-    ctx.strokeStyle = `rgba(143,180,255,${0.55 + Math.sin(B.t * 3) * 0.15})`; ctx.fillStyle = 'rgba(143,180,255,.07)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.ellipse(0, 0, 135 + Math.sin(B.t * 2) * 3, 100, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.strokeStyle = 'rgba(143,180,255,.2)'; ctx.lineWidth = 1.5;
-    for (let k = -3; k <= 3; k++) { ctx.beginPath(); ctx.ellipse(0, 0, 135 * Math.cos(k * 0.22), 100, 0, 0, Math.PI * 2); ctx.stroke(); }
+  // Gehäuse-Rippen hoch in die Mauer
+  ctx.strokeStyle = 'rgba(176,124,255,.35)'; ctx.lineWidth = 3;
+  ctx.beginPath();
+  for (const l of LANES) { const m = laneMid(l); ctx.moveTo(m - 55, 250); ctx.lineTo(m - 42, 120); ctx.lineTo(m, 95); ctx.lineTo(m + 42, 120); ctx.lineTo(m + 55, 250); }
+  for (const b of [W / 3, W * 2 / 3]) { ctx.moveTo(b - 18, 250); ctx.lineTo(b - 18, 0); ctx.moveTo(b + 18, 250); ctx.lineTo(b + 18, 0); }
+  ctx.stroke();
+  // Risse in zerstörten Dritteln
+  ctx.strokeStyle = 'rgba(255,90,60,.6)'; ctx.lineWidth = 2;
+  for (const l of LANES) if (B.seg[l].core === 'dead') {
+    const m = laneMid(l);
+    ctx.beginPath(); ctx.moveTo(m - 10, 270); ctx.lineTo(m - 30, 210); ctx.lineTo(m - 18, 180); ctx.lineTo(m - 50, 130);
+    ctx.moveTo(m + 12, 268); ctx.lineTo(m + 24, 220); ctx.lineTo(m + 58, 190); ctx.lineTo(m + 50, 150); ctx.stroke();
   }
   ctx.restore();
-  // Kerne wie bei den Mini-Bossen: gelb leuchtend, roter Lebensring
+  // Lauflichter: im aktiven Drittel rot, sonst lila Welle
+  for (let x = 20; x < W; x += 40) {
+    const l = laneOf(x), hot = l === active, on = Math.sin(B.t * 4 - x / 60) > 0.2;
+    const col = hot ? '#ff3355' : c;
+    ctx.fillStyle = on || hot && blink ? col : '#3a2a5a';
+    if (on) { ctx.shadowColor = col; ctx.shadowBlur = 8; }
+    ctx.beginPath(); ctx.arc(x, 190, 3, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+  }
+  // Pfeiler-Spitzen
+  for (const b of [W / 3, W * 2 / 3]) {
+    ctx.fillStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(b, 252, 4, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+  }
+  // Mittlerer Schlitz: Hauptkern schimmert durch, solange er gepanzert ist
+  if (B.shield) {
+    ctx.fillStyle = '#0d0a1a'; ctx.fillRect(W / 2 - 40, 140, 80, 18);
+    ctx.fillStyle = `rgba(143,180,255,${0.45 + Math.sin(B.t * 3) * 0.2})`; ctx.shadowColor = '#8fb4ff'; ctx.shadowBlur = 12;
+    ctx.fillRect(W / 2 - 34, 145, 68, 8); ctx.shadowBlur = 0;
+  }
+  // Neonkante
+  ctx.strokeStyle = c; ctx.lineWidth = 4; ctx.shadowColor = c; ctx.shadowBlur = 20;
+  ctx.beginPath(); e.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); e.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
+
+  // Geschütze und Kerngehäuse pro Drittel
+  for (const l of LANES) {
+    const S = B.seg[l], m = laneMid(l), hot = l === active, dead = S.core === 'dead';
+    for (const side of [0, 1]) {
+      const gx = m + (side ? BASTION_GUN : -BASTION_GUN), gy = 212, gc = hot ? '#ff3355' : dead ? '#5a4a7a' : c;
+      ctx.save(); ctx.translate(gx, gy); ctx.rotate(S.aim);
+      ctx.fillStyle = '#2a2040'; ctx.strokeStyle = gc; ctx.lineWidth = 2;
+      ctx.fillRect(0, -6, 36, 12); ctx.strokeRect(0, -6, 36, 12);
+      if (S.flashT > 0) { ctx.fillStyle = '#ffffff'; ctx.shadowColor = gc; ctx.shadowBlur = 16; ctx.beginPath(); ctx.arc(38, 0, 8, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0; }
+      else { ctx.fillStyle = "#ffffffcc"; ctx.fillRect(31, -6, 5, 12); }
+      ctx.restore();
+      ctx.fillStyle = '#1c1430'; ctx.strokeStyle = gc; ctx.lineWidth = 3;
+      if (hot) { ctx.shadowColor = gc; ctx.shadowBlur = 14; }
+      ctx.beginPath(); ctx.arc(gx, 205, 25, 0, Math.PI); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+    }
+    // Kerngehäuse
+    ctx.save(); ctx.translate(m, BASTION_CORE_Y);
+    ctx.fillStyle = '#120d22'; ctx.strokeStyle = dead ? '#5a4a7a' : c; ctx.lineWidth = 3;
+    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + Math.PI / 6; ctx.lineTo(Math.cos(a) * 34, Math.sin(a) * 34); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    if (dead && !(l === "M" && B.eyeK > 0)) {   // ausgebrannter Krater (in der Mitte kommt der Hauptkern raus)
+      ctx.fillStyle = blink ? '#ff7a2e' : '#a8321e'; ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.arc(0, 0, 10 + Math.random() * 4, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    } else if (S.open < 1) {   // Panzerklappen, die zur Seite fahren
+      const sh = S.open * 30;
+      ctx.save(); ctx.beginPath(); ctx.arc(0, 0, 29, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = '#2a3456'; ctx.strokeStyle = 'rgba(143,180,255,.7)'; ctx.lineWidth = 2;
+      ctx.fillRect(-30 - sh, -30, 30, 60); ctx.strokeRect(-30 - sh, -30, 30, 60);
+      ctx.fillRect(sh, -30, 30, 60); ctx.strokeRect(sh, -30, 30, 60);
+      ctx.strokeStyle = 'rgba(143,180,255,.35)';
+      ctx.beginPath(); ctx.moveTo(-22 - sh, -18); ctx.lineTo(-8 - sh, 0); ctx.lineTo(-22 - sh, 18); ctx.moveTo(22 + sh, -18); ctx.lineTo(8 + sh, 0); ctx.lineTo(22 + sh, 18); ctx.stroke();
+      ctx.restore();
+      if (!S.open) { ctx.fillStyle = '#8fb4ff'; ctx.shadowColor = '#8fb4ff'; ctx.shadowBlur = 8; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0; }
+    }
+    ctx.restore();
+  }
+  // Hauptkern: fährt nach dem dritten Kern aus dem mittleren Gehäuse (vor der Mauer gezeichnet)
+  if (B.eyeK > 0) {
+    const ey = BASTION_EYE_Y0 + (BASTION_EYE_Y1 - BASTION_EYE_Y0) * B.eyeK, col = B.flashT > 0 ? '#ffffff' : '#ffe14a';
+    ctx.strokeStyle = c; ctx.lineWidth = 6;
+    for (const sx of [-26, 26]) { ctx.beginPath(); ctx.moveTo(W / 2 + sx, 200); ctx.lineTo(W / 2 + sx * 0.8, ey); ctx.stroke(); }
+    ctx.save(); ctx.translate(W / 2, ey);
+    ctx.fillStyle = '#1c1430'; ctx.strokeStyle = c; ctx.lineWidth = 4; ctx.shadowColor = c; ctx.shadowBlur = 18;
+    ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.PI / 8; ctx.lineTo(Math.cos(a) * 46, Math.sin(a) * 46); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 30;
+    ctx.beginPath(); ctx.arc(0, 0, 26 + Math.sin(B.t * 6) * 2, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#fff8d0'; ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#ff3355'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(0, 0, 53, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, B.bossHp / B.bossMax)); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+  // Kerne: gelb leuchtend, roter Lebensring (unter den Panzerklappen hervor)
   for (const k of B.cores) {
-    const col = k.flashT > 0 ? '#ffffff' : '#ffe14a';
-    ctx.save(); ctx.translate(k.x, k.y);
-    ctx.fillStyle = '#1c1430'; ctx.strokeStyle = B.color; ctx.lineWidth = 3;
-    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + Math.PI / 6; ctx.lineTo(Math.cos(a) * 30, Math.sin(a) * 30); } ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18 + Math.sin(k.t * 6) * 6;
-    ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0; ctx.fillStyle = '#fff8d0'; ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill();
+    const col = k.flashT > 0 ? '#ffffff' : '#ffe14a', o = B.seg[k.lane].open;
+    ctx.save(); ctx.translate(k.x, B.y + k.y);
+    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = (18 + Math.sin(k.t * 6) * 6) * o;
+    ctx.beginPath(); ctx.arc(0, 0, 18 * o, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#fff8d0'; ctx.beginPath(); ctx.arc(0, 0, 7 * o, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#ff3355'; ctx.lineWidth = 3.5;
-    ctx.beginPath(); ctx.arc(0, 0, 37, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, k.hp / k.maxHp)); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 40, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, k.hp / k.maxHp)); ctx.stroke();
     ctx.restore();
   }
 }
@@ -3258,6 +3461,16 @@ function drawGlider(e, scale) {
   if (e.elite) { ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 2.5; ctx.stroke(); }
   ctx.shadowBlur = 0; ctx.fillStyle = e.gun ? '#c77dff' : 'rgba(255,255,255,.75)';
   ctx.beginPath(); ctx.ellipse(0, 1, 3.5, 6, 0, 0, Math.PI * 2); ctx.fill();
+  if (e.type === 'shielder') {   // Schildgleiter: Projektor auf dem Rücken + kreisender Halbring
+    const linked = G.enemies.some(o => o.shieldBy === e);
+    ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#4ad8ff'; ctx.shadowBlur = linked ? 14 : 6;
+    ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(5, -13); ctx.lineTo(0, -8); ctx.lineTo(-5, -13); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = linked ? '#bff3ff' : 'rgba(74,216,255,.6)'; ctx.lineWidth = 2;
+    const a0 = e.t * 3;
+    ctx.beginPath(); ctx.arc(0, 0, 28, a0, a0 + Math.PI * 0.7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 28, a0 + Math.PI, a0 + Math.PI * 1.7); ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
   if (tank && !damaged) {
     ctx.strokeStyle = '#e8ecff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(0, 0, 27, 0, Math.PI * 2); ctx.stroke();
@@ -3423,6 +3636,7 @@ function draw(dt) {
       }
       drawGlider(e);
     }
+    drawShieldLinks();
     if (G.boss && G.boss.state !== 'dead') drawBoss(G.boss);
     if (G.bigBoss) drawBigBoss(G.bigBoss);
     if (G.ghost) drawGhost(G.ghost);
@@ -3660,6 +3874,7 @@ function devAction(a) {
   if (a === 'clear' && G.bigBoss) {
     const B = G.bigBoss;
     if (B.id === 'ring') { for (const m of B.mods) m.hp = 0; B.final = true; B.ringHp = 0; }   // Ring rechnet seine Leben aus Türmen + Ring
+    if (B.id === 'bastion') B.bossHp = 0;   // Bastion rechnet ihre Leben aus Kernen + Hauptkern
     B.hp = 0;
     return closeDev();
   }
@@ -3768,6 +3983,32 @@ window.addEventListener('pointermove', e => {
   pointer.tx += q.x - pointer.x; pointer.ty += q.y - pointer.y;
   pointer.x = q.x; pointer.y = q.y;
 });
+// iPad/Touch: Bildschirmtastatur. Sie verkleinert die sichtbare Höhe, dadurch würde das Spielfeld
+// (dessen Größe von der Höhe abhängt) schrumpfen und das Eingabefeld verdeckt. Deshalb beim Tippen
+// die letzte Größe ohne Tastatur festhalten und das Eingabefenster nach oben rücken (CSS body.typing).
+const isTypingField = el => !!(el && el.matches && el.matches('input:not([type=checkbox]):not([type=radio]), textarea'));
+let stableWrapW = 0;
+const noteWrapW = () => { if (!document.body.classList.contains('typing')) stableWrapW = $('wrap').getBoundingClientRect().width; };
+window.addEventListener('resize', noteWrapW);
+noteWrapW();
+document.addEventListener('focusin', e => {
+  if (!isTouch || !isTypingField(e.target)) return;
+  if (!document.body.classList.contains('typing')) {
+    noteWrapW();
+    if (stableWrapW) $('wrap').style.width = stableWrapW + 'px';
+    document.body.classList.add('typing');
+  }
+});
+document.addEventListener('focusout', () => {
+  if (!isTouch) return;
+  setTimeout(() => {   // beim Wechsel zwischen zwei Feldern nicht kurz zurückspringen
+    if (isTypingField(document.activeElement)) return;
+    document.body.classList.remove('typing');
+    $('wrap').style.width = '';
+    window.scrollTo(0, 0);   // falls Safari die Seite zum Feld verschoben hat
+  }, 120);
+});
+
 // iOS: während des Fliegens nicht scrollen/zoomen, sonst bricht Safari die Berührung ab.
 document.addEventListener('touchmove', e => { if (isFlying()) e.preventDefault(); }, { passive: false });
 window.addEventListener('pointerup', () => { pointer.active = false; });
