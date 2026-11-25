@@ -246,6 +246,7 @@
       <h3>Sektorkarte</h3>
       <div class="devrow">
         <button data-dev="freemap" id="devFreeMap">Freie Kartenwahl: aus</button>
+        <button data-dev="nextsector">Zum nächsten Sektor</button>
         <span class="hint">An: Auf der Karte ist jeder Knoten direkt spielbar, auch weiter vorne und der Sektorboss.</span>
       </div>
       <h3>Boss jetzt starten</h3>
@@ -255,6 +256,7 @@
         <button data-dev="boss-fast">Jäger</button>
         <button data-dev="bigboss-rammer">👑 Rammbock</button>
         <button data-dev="bigboss-ring">👑 Stahlring</button>
+        <button data-dev="bigboss-bastion">👑 Bastion</button>
       </div>
       <h3>Schiff</h3>
       <div class="devrow">
@@ -408,7 +410,7 @@ const SKINS = [
   { id: 'komet',   name: 'Komet',   code: 'KOMET',   color: '#5bf08a', wing: 22, hull: 5, speed: 0.7, dmg: 2, cool: 1.15, shot: 0.65, bossDmg: 0.6,
     desc: 'Schwere Geschosse: doppelter Schaden, Panzergleiter fallen mit einem Treffer. Gegen Bosse etwas schwächer. Dafür deutlich langsamer, auch die Geschosse.',
     need: '100 Abschüsse insgesamt', ok: s => s.totalKills >= 100 },
-  { id: 'nova',    name: 'Nova',    code: 'NOVA',    color: '#ff6bd6', wing: 26, fins: true, hull: 4, speed: 1, dmg: 1, cool: 1.7, fan: true,
+  { id: 'nova',    name: 'Nova',    code: 'NOVA',    color: '#ff6bd6', wing: 26, fins: true, hull: 4, speed: 1, dmg: 1, cool: 2.1, fan: true,
     desc: 'Schießt immer im Fächer: 3 Kugeln pro Buchstabe. Dafür feuert sie langsamer und hat nur 4 Hüllenpunkte.',
     need: 'Highscore ab 3000', ok: s => s.hiscore >= 3000 },
   { id: 'phantom', name: 'Phantom', code: 'PHANTOM', color: '#ffc94a', wing: 24, fins: true, hull: 4, speed: 1.35, dmg: 1, cool: 0.85, save: 0.25, shot: 1.4, ghost: 4,
@@ -440,7 +442,9 @@ let G = null;
 let muted = store.get('muted', false);
 let leitner = store.get('leitner', {});
 const keys = {};
-const pointer = { active: false, x: W / 2 };
+const pointer = { active: false, x: 0, y: 0, tx: W / 2, ty: H - 50 };
+// Höhenbereich des Schiffs (unteres Drittel): weiter oben wäre es zu nah an Gegnern/Bossen.
+const PLAYER_Y_MIN = H - 280, PLAYER_Y_MAX = H - 40, PLAYER_Y0 = H - 50;
 
 let musicOn = store.get('music', true);
 let actx = null, master = null, musicBus = null, noiseBuf = null;
@@ -534,6 +538,7 @@ const SFX = {
   clank() { tone(rnd(1900, 2300), 0.04, { type: 'square', vol: 0.03 }); },
   enemyShot() { tone(300, 0.12, { type: 'square', vol: 0.05, slide: 150 }); },
   lock() { tone(1100, 0.07, { type: 'square', vol: 0.06 }); tone(1100, 0.07, { type: 'square', vol: 0.06, delay: 0.14 }); tone(1100, 0.07, { type: 'square', vol: 0.06, delay: 0.28 }); },
+  dry() { tone(rnd(180, 220), 0.03, { type: 'square', vol: 0.07 }); noise(0.04, { vol: 0.12, freq: 1800, filter: 'bandpass' }); },
   dash() { tone(300, 0.5, { type: 'sawtooth', vol: 0.08, slide: 1400 }); noise(0.4, { vol: 0.1, freq: 3000, slide: 6000, filter: 'highpass' }); },
   coreBreak() { noise(0.7, { vol: 0.45, freq: 2500, slide: 120 }); tone(180, 0.5, { type: 'sawtooth', vol: 0.12, slide: 50 }); },
   gameOver() { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.32, { vol: 0.08, delay: i * 0.22 })); },
@@ -774,12 +779,6 @@ function openReload(auto = false) {
 
 function closeReload() {
   if (phase !== 'reload') return;
-  if (!G.test && !G.ammo.length) {
-    $('qFb').className = 'fb bad';
-    $('qFb').textContent = 'Ohne Munition geht es nicht weiter. Lade mindestens ein Wort nach.';
-    shakeInput('qInput');
-    return;
-  }
   phase = 'shoot';
   showPanel(null);
   $('qInput').blur();
@@ -952,6 +951,8 @@ function startWave() {
   } else {
     G.spawnLeft = G.breather ? Math.round(cfg.count * 0.75) : cfg.count;
     if (G.curse === 'swarm') G.spawnLeft = Math.round(G.spawnLeft * 1.5);   // Fluch „Übermacht“
+    // Fluch „Heimsuchung“: unverwundbarer Tarnkreuzer für die ganze Welle
+    G.ghost = G.curse === 'haunt' ? { x: W / 2, y: -80, t: 0, fireT: 2.5, fade: 0, burst: 0 } : null;
     G.breather = false;
   }
   G.waveTotal = G.spawnLeft;
@@ -1020,6 +1021,72 @@ function kamikazeBlast(e) {
     o.hp -= 1; o.flashT = 0.1;
     if (o.hp <= 0) killEnemy(o);
   }
+}
+
+// ---------- Fluch „Heimsuchung“: der Tarnkreuzer ----------
+// Getarntes, unverwundbares Schiff: schwebt oben, folgt dem Schiff träge und schießt die ganze
+// Welle über langsame, gezielte Kugeln (ab und zu einen kleinen Fächer). Schüsse fliegen hindurch.
+// (Intern heißt er weiterhin G.ghost.)
+const GHOST_Y = 105, GHOST_FOLLOW = 70, GHOST_FIRE = [1.8, 2.4], GHOST_SHOT_SPEED = 185;
+
+function updateGhost(dt) {
+  const g = G.ghost, p = G.player;
+  g.t += dt;
+  g.fade = Math.min(1, g.fade + dt * 0.8);
+  g.y += (GHOST_Y + Math.sin(g.t * 1.3) * 14 - g.y) * Math.min(1, dt * 2);
+  g.x += Math.max(-GHOST_FOLLOW * dt, Math.min(GHOST_FOLLOW * dt, p.x - g.x)) + Math.sin(g.t * 0.9) * 20 * dt;
+  if (g.fade < 1) return;   // erst schießen, wenn er ganz da ist
+  g.fireT -= dt;
+  if (g.fireT <= 0) {
+    const a = Math.atan2(p.y - (g.y + 20), p.x - g.x);
+    const spread = ++g.burst % 4 === 0 ? [-0.22, 0, 0.22] : [0];   // jede 4. Salve ein kleiner Fächer
+    for (const s of spread) G.shots.push({ x: g.x, y: g.y + 20, vx: Math.cos(a + s) * GHOST_SHOT_SPEED, vy: Math.sin(a + s) * GHOST_SHOT_SPEED, color: '#7fd0ff', r: 7.5 });
+    g.fireT = GHOST_FIRE[0] + Math.random() * (GHOST_FIRE[1] - GHOST_FIRE[0]);
+    g.flash = 0.25;
+    SFX.enemyShot();
+  }
+  if (g.flash > 0) g.flash -= dt;
+}
+
+// Look wie die anderen Gegner (kantige Form, Spitze nach unten, Neonkante, weißer Kern),
+// aber eigenes Design: breiter Kreuzer mit Doppelspitze und Heckflossen, halb durchsichtig
+// und flimmernd getarnt.
+function drawGhost(g) {
+  const col = '#5ab4ff', edge = '#9fdcff';
+  const flicker = 0.6 + Math.sin(g.t * 9) * 0.07 + (Math.random() < 0.04 ? -0.3 : 0);
+  ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(Math.cos(g.t * 1.3) * 0.06);
+  ctx.globalAlpha = Math.max(0, g.fade * flicker);
+  // Triebwerksglühen oben
+  ctx.fillStyle = 'rgba(127,208,255,.55)';
+  for (const ex of [-14, 14]) { ctx.beginPath(); ctx.ellipse(ex, -40, 5, 8 + Math.random() * 6, 0, 0, Math.PI * 2); ctx.fill(); }
+  // Rumpf: breites Delta mit Doppelspitze unten und eingekerbten Flügeln
+  const hullPts = [[0, 22], [10, 34], [20, 14], [62, -14], [50, -24], [24, -16], [18, -38], [6, -30],
+                   [-6, -30], [-18, -38], [-24, -16], [-50, -24], [-62, -14], [-20, 14], [-10, 34]];
+  ctx.fillStyle = 'rgba(90,180,255,.38)'; ctx.strokeStyle = edge; ctx.lineWidth = 2.5;
+  ctx.shadowColor = col; ctx.shadowBlur = 26;
+  ctx.beginPath(); hullPts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  // Panzerfugen
+  ctx.strokeStyle = 'rgba(220,240,255,.35)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -30); ctx.lineTo(0, 22);
+  ctx.moveTo(-20, 14); ctx.lineTo(-24, -16); ctx.moveTo(20, 14); ctx.lineTo(24, -16);
+  ctx.moveTo(-50, -18); ctx.lineTo(-24, -6); ctx.moveTo(50, -18); ctx.lineTo(24, -6);
+  ctx.stroke();
+  // Tarnfeld: wandernde helle Streifen über den Rumpf
+  ctx.save(); ctx.beginPath(); hullPts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.clip();
+  ctx.fillStyle = 'rgba(200,235,255,.22)';
+  for (let k = 0; k < 3; k++) { const yy = ((g.t * 40 + k * 26) % 80) - 40; ctx.fillRect(-70, yy, 140, 3); }
+  ctx.restore();
+  // Flügelspitzen-Lichter
+  ctx.fillStyle = edge;
+  for (const sx of [-1, 1]) { ctx.beginPath(); ctx.arc(sx * 56, -18, 2.5, 0, Math.PI * 2); ctx.fill(); }
+  // Kern wie bei den Gleitern (blitzt beim Schießen)
+  ctx.globalAlpha = Math.max(0, g.fade);
+  ctx.fillStyle = g.flash > 0 ? '#ffffff' : 'rgba(225,245,255,.9)'; ctx.shadowColor = col; ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.ellipse(0, -2, 5, 9, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 
 // Schützen-Gleiter feuern ab und zu gezielt auf das Schiff.
@@ -1129,8 +1196,10 @@ function updateHeat(dt) {
 }
 
 function addHeat() {
+  // Hitze pro Schuss wächst mit der Feuerpause des Schiffs (cool): Langsam feuernde Schiffe wie Nova
+  // heizen pro Schuss stärker auf, so dass alle Schiffe bei Dauerfeuer ähnlich schnell überhitzen.
   // Schnellfeuer heizt pro Schuss weniger.
-  G.heat += HEAT_PER_SHOT * (powerActive('rapid') ? 0.6 : 1) * 0.85 ** upLv('cool');
+  G.heat += HEAT_PER_SHOT * (currentSkin().cool || 1) * (powerActive('rapid') ? 0.6 : 1) * 0.85 ** upLv('cool');
   if (G.heat >= 100) {
     G.heat = 100; G.overheat = true;
     floatText(G.player.x, G.player.y - 50, 'Überhitzt!', '#ff5d73');
@@ -1186,7 +1255,10 @@ function playerStep(dt) {
   if (G.arcade) updateHeat(dt);
   G.cooldown -= dt;
   const canFire = G.test || (G.arcade ? !G.overheat : G.ammo.length);
-  if ((keys.Space || pointer.active) && G.cooldown <= 0 && canFire) fire();
+  if ((keys.Space || pointer.active) && G.cooldown <= 0) {
+    if (canFire) fire();
+    else if (!G.arcade && !G.test) { SFX.dry(); G.cooldown = 0.35; }   // Lernmodus ohne Munition: nur ein Klacken
+  }
 }
 
 function fire() {
@@ -1224,13 +1296,28 @@ function hitDamage(b) {
 
 function movePlayer(dt) {
   const p = G.player, v = (powerActive('speed') ? 700 : 430) * currentSkin().speed * 1.12 ** upLv('speed');
-  let dx = 0;
+  let dx = 0, dy = 0;
   if (keys.ArrowLeft || keys.KeyA) dx -= 1;
   if (keys.ArrowRight || keys.KeyD) dx += 1;
-  if (dx) p.x += dx * v * dt;
-  else if (pointer.active) p.x += Math.max(-v * dt, Math.min(v * dt, pointer.x - p.x));
-  // Drohnenwände des Sektorbosses begrenzen den Flugbereich.
+  if (keys.ArrowUp || keys.KeyW) dy -= 1;
+  if (keys.ArrowDown || keys.KeyS) dy += 1;
+  if (dx || dy) {
+    const n = dx && dy ? Math.SQRT1_2 : 1;   // schräg nicht schneller als gerade
+    p.x += dx * n * v * dt; p.y += dy * n * v * dt;
+    pointer.tx = p.x; pointer.ty = p.y;
+  } else if (pointer.active) {
+    // Touchpad-Steuerung: Schiff fährt zum Ziel, das der Finger relativ verschoben hat.
+    const ddx = pointer.tx - p.x, ddy = pointer.ty - p.y, d = Math.hypot(ddx, ddy);
+    if (d > v * dt) { p.x += ddx / d * v * dt; p.y += ddy / d * v * dt; }
+    else { p.x = pointer.tx; p.y = pointer.ty; }
+  }
+  // Drohnenwände des Sektorbosses begrenzen den Flugbereich; nach oben nur bis PLAYER_Y_MIN.
   p.x = Math.max((G.wallL || 0) + 24, Math.min(W - (G.wallR || 0) - 24, p.x));
+  p.y = Math.max(PLAYER_Y_MIN, Math.min(PLAYER_Y_MAX, p.y));
+  if (pointer.active) {   // Ziel nicht hinter die Grenzen laufen lassen, sonst "klebt" der Finger
+    pointer.tx = Math.max((G.wallL || 0) + 24, Math.min(W - (G.wallR || 0) - 24, pointer.tx));
+    pointer.ty = Math.max(PLAYER_Y_MIN, Math.min(PLAYER_Y_MAX, pointer.ty));
+  }
 }
 
 function updateBullets(dt) {
@@ -1297,6 +1384,7 @@ function updateShoot(dt) {
     e.x = Math.max(e.r, Math.min(W - e.r, e.baseX + Math.sin(e.t * (e.type === 'fast' ? 2.6 : 1.4)) * e.amp));
   }
   updateGunners(dt);
+  if (G.ghost) updateGhost(dt);
   updateEnemyShots(dt);
 
   for (const b of G.bullets) {
@@ -1318,6 +1406,10 @@ function updateShoot(dt) {
     // Kamikaze verfehlt: fliegt ohne Schaden aus dem Bild.
     if (e.type === 'kamikaze' && (e.y > H + 20 || e.x < -40 || e.x > W + 40)) {
       e.hp = 0; floatText(Math.max(60, Math.min(W - 60, e.x)), H - 90, 'Ausgewichen!', '#5bf08a'); continue;
+    }
+    // Zusammenstoß mit dem Schiff (seit man nach oben fliegen kann): Gegner platzt, Schiff nimmt Schaden.
+    if (e.type !== 'bonus' && e.type !== 'kamikaze' && Math.hypot(e.x - G.player.x, e.y - G.player.y) < e.r + 16) {
+      e.hp = 0; explode(e.x, e.y, '#ff7a2e', 16); playerHit(); continue;
     }
     if (e.type !== 'bonus' && e.y > H + 20) {
       e.hp = 0;
@@ -1341,7 +1433,6 @@ function updateShoot(dt) {
 
   G.hintT -= dt;
   if (!G.enemies.length && !G.spawnLeft) return waveCleared();
-  if (!G.test && !G.arcade && !G.ammo.length && !G.bullets.length && (keys.Space || pointer.active)) return openReload(true);
 }
 
 async function waveCleared() {
@@ -1366,6 +1457,7 @@ async function waveCleared() {
     }
   }
   G.curse = null;
+  if (G.ghost) { explode(G.ghost.x, G.ghost.y, '#7fd0ff', 30); G.ghost = null; }   // der Tarnkreuzer zieht ab
   SFX.fanfare();
   await banner(text, text.includes('<small>') ? 2300 : 1700);
   const fresh = checkUnlocks();
@@ -1409,6 +1501,8 @@ const NODE_TYPES = {
   boss:     { icon: '👑', name: 'Sektorboss',    color: '#ff3355', w: 0 },   // immer die letzte Stufe, nie zufällig
 };
 const BOSS_LAYER = MAP_LAYERS;   // eigene Stufe über der letzten normalen Stufe
+// Pro Karte: Reparaturdock, Schatz und Händler je 1–2, zusammen höchstens 30 % der Knoten.
+const NONCOMBAT_MAX_EACH = 2, NONCOMBAT_SHARE = 0.3;
 const COMBAT_NODES = ['fight', 'curse', 'bless', 'bonus'];
 const CURSES = {
   kami:   { name: 'Drohnenschwarm',  desc: 'viel mehr Kamikaze-Drohnen' },
@@ -1417,6 +1511,7 @@ const CURSES = {
   guns:   { name: 'Kreuzfeuer',      desc: 'viel mehr Schützen-Gleiter' },
   swarm:  { name: 'Übermacht',       desc: '50 % mehr Gegner' },
   nodrop: { name: 'Dürre',           desc: 'keine Power-ups' },
+  haunt:  { name: 'Heimsuchung',     desc: 'ein unverwundbarer Tarnkreuzer schwebt oben und schießt die ganze Welle auf dich' },
 };
 const CURSE_COINS = 25;
 const BLESSINGS = {
@@ -1428,7 +1523,19 @@ const BLESSINGS = {
 };
 const pickKey = obj => { const k = Object.keys(obj); return k[Math.random() * k.length | 0]; };
 
+// Karten mit sehr wenigen Knoten neu würfeln, damit die Pflicht-Knoten (Reparatur, Schatz, Händler)
+// zusammen unter 30 % bleiben: mindestens MAP_MIN_NODES Knoten (ohne Sektorboss).
+const MAP_MIN_NODES = 10;
 function genSector() {
+  let m;
+  for (let i = 0; i < 30; i++) {
+    m = genSectorOnce();
+    if (m.nodes.filter(n => n.type !== 'boss').length >= MAP_MIN_NODES) break;
+  }
+  return m;
+}
+
+function genSectorOnce() {
   const grid = Array.from({ length: MAP_LAYERS }, () => []), edges = [];
   const crosses = (l, a, b) => edges.some(e => e.l === l && ((e.a < a && e.b > b) || (e.a > a && e.b < b)));
   for (let p = 0; p < MAP_PATHS; p++) {
@@ -1461,6 +1568,19 @@ function genSector() {
   ensure('rest', [2, 3, 4]);
   ensure('treasure', [1, 2, 3, 4]);
   ensure('shop', [3, 4, 5]);
+  // Obergrenzen: je Typ höchstens NONCOMBAT_MAX_EACH, zusammen höchstens NONCOMBAT_SHARE aller
+  // Knoten. Überzählige werden zu normalen Kämpfen. Von jedem Typ bleibt mindestens einer.
+  const NONCOMBAT = ['rest', 'treasure', 'shop'];
+  const ofType = t => shuffle(nodes.filter(n => n.type === t));
+  for (const t of NONCOMBAT) for (const n of ofType(t).slice(NONCOMBAT_MAX_EACH)) n.type = 'fight';
+  const maxTotal = Math.max(NONCOMBAT.length, Math.floor(nodes.length * NONCOMBAT_SHARE));
+  let extra = shuffle(nodes.filter(n => NONCOMBAT.includes(n.type)));
+  while (extra.length > maxTotal) {
+    const n = extra.find(x => nodes.filter(y => y.type === x.type).length > 1);
+    if (!n) break;
+    n.type = 'fight';
+    extra = extra.filter(x => x !== n);
+  }
   for (const n of nodes) {
     if (n.type === 'curse') n.curse = pickKey(CURSES);
     if (n.type === 'bless') n.bless = pickKey(BLESSINGS);
@@ -1833,6 +1953,7 @@ function startBoss(forced) {
   // Sinkdauer bis zur Linie: 8 s + 10 s pro Wort (1 Wort ≈ 18 s, 2 ≈ 28 s), je nach Variante
   // langsamer/schneller und ab Welle 6 insgesamt etwas schneller.
   const travel = (8 + 10 * hp) * def.slow * Math.max(0.75, 1 - Math.max(0, G.round - 5) * 0.03);
+  G.player.y = PLAYER_Y0;   // Wortboss: Schiff steht fest unten
   G.boss = { kind, ...def, item: bossItem(), x: W / 2, y: -90, t: 0, state: 'enter', hp, maxHp: hp, travel, lineY: H - 270, vy: 0, flashT: 0, shots: [], exact: true };
   $('bTitle').textContent = `${def.name} · ${hp} ${hp === 1 ? 'Wort' : 'Wörter'} · −${def.dmg} Hülle bei Durchbruch`;
   G.bullets = []; G.enemies = [];
@@ -2130,6 +2251,7 @@ function setFieldWidth(w) {
   W = Math.round(w);
   if (cv.width !== W) cv.width = W;
   if (G && G.player) G.player.x = Math.max(24, Math.min(W - 24, G.player.x * W / old));
+  pointer.tx = pointer.tx * W / old;
   for (const s of stars) s.x *= W / old;
   const wrap = $('wrap');
   if (W === W_NARROW) { wrap.style.width = ''; wrap.style.aspectRatio = ''; return; }
@@ -2166,6 +2288,8 @@ const BIG_BOSSES = [
   { id: 'rammer', name: 'RAMMBOCK', color: '#ff3355', hp: 190, desc: 'Folgt dir und rammt dann von oben auf dich herab. Ausweichen!' },
   { id: 'ring', name: 'STAHLRING', color: '#ffc94a', hp: 0, modHp: 11, ringHp: 45,
     desc: 'Schließt dich ein. Nur der obere Geschützturm ist verwundbar: Zerstöre alle 6, dann den Ring selbst.' },
+  { id: 'bastion', name: 'BASTION', color: '#b07cff', hp: 0, coreHpBase: 16, bossHpBase: 55,
+    desc: 'Unverwundbar hinter ihrem Schild. Drohnenwände sperren abwechselnd Mitte und Seiten: Zerstöre die Kerne in der freien Bahn.' },
 ];
 const bigBossDef = () => BIG_BOSSES[((G.sector || 1) - 1) % BIG_BOSSES.length];
 const BB_W = 92, BB_H = 58, BB_TOP = 150;   // halbe Breite/Höhe, Ruheposition oben
@@ -2194,6 +2318,7 @@ function startBigBoss(forcedId) {
       G.bossFights = G.bossFights || {};
       G.bigBoss.fightNo = G.bossFights[def.id] = (G.bossFights[def.id] || 0) + 1;   // wie oft gegen diesen Boss
       if (def.id === 'ring') initRing(G.bigBoss, mult);
+      if (def.id === 'bastion') initBastion(G.bigBoss, mult);
       G.wallL = G.wallR = 0;
       G.cooldown = 0;
       if (upLv('shield')) G.shield = Math.max(G.shield, upLv('shield'));
@@ -2248,6 +2373,7 @@ const setBB = (B, s) => { B.state = s; B.st = 0; };
 
 function updateBigBoss(dt) {
   if (G.bigBoss.id === 'ring') return updateRingBoss(dt);
+  if (G.bigBoss.id === 'bastion') return updateBastion(dt);
   const B = G.bigBoss, p = G.player, ph = bigPhase(B);
   playerStep(dt);
   updateBullets(dt);
@@ -2318,7 +2444,6 @@ function updateBigBoss(dt) {
 
   if (G.hull <= 0 && !tryRevive()) return gameOver();
   if (B.hp <= 0) return bigBossDefeated();
-  if (!G.test && !G.arcade && !G.ammo.length && !G.bullets.length && (keys.Space || pointer.active)) return openReload(true);
 }
 
 async function bigBossDefeated() {
@@ -2382,6 +2507,7 @@ function drawBossWalls(B) {
 
 function drawBigBoss(B) {
   if (B.id === 'ring') return drawRingBoss(B);
+  if (B.id === 'bastion') return drawBastion(B);
   drawBossWalls(B);
   const blink = Math.floor(performance.now() / 110) % 2;
   if (B.state === 'warn') {   // Einschlagsspalte
@@ -2594,7 +2720,6 @@ function updateRingBoss(dt) {
 
   if (G.hull <= 0 && !tryRevive()) return gameOver();
   if (B.final && B.ringHp <= 0) return bigBossDefeated();
-  if (!G.test && !G.arcade && !G.ammo.length && !G.bullets.length && (keys.Space || pointer.active)) return openReload(true);
 }
 
 function moduleDestroyed(B, m) {
@@ -2616,34 +2741,37 @@ function moduleDestroyed(B, m) {
 }
 
 // ---------- Stahlring zeichnen ----------
-// Stil wie der Rest: dunkle Fläche, leuchtende Neonkanten, feine weiße Fugen, blinkende Lichter.
+// Leuchtendes Band (hellrot, am Ende gold) mit dunklen Kanten, dunklen Fugen und blinkenden Lichtern.
 function drawRingBand(B) {
-  const cx = B.x, cy = B.y, R = B.r, col = B.flashT > 0 ? '#ffffff' : B.final ? '#ffc94a' : B.color === '#ffc94a' ? '#ff3355' : B.color;
+  const cx = B.x, cy = B.y, R = B.r;
+  const band = B.flashT > 0 ? '#ffffff' : B.final ? '#ffc94a' : B.color === '#ffc94a' ? '#ff3355' : B.color;
+  const edge = B.final ? '#3a2a08' : '#3a1020';
   ctx.save();
-  // dunkles Band
-  ctx.strokeStyle = B.final ? '#3a2a08' : '#3a1020'; ctx.lineWidth = RING_BAND * 2;
+  // leuchtendes Band
+  ctx.strokeStyle = band; ctx.lineWidth = RING_BAND * 2;
+  ctx.shadowColor = band; ctx.shadowBlur = B.final ? 22 + Math.sin(B.t * 6) * 8 : 16;
   ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI, Math.PI * 2); ctx.stroke();
-  // Neonkanten außen und innen
-  ctx.strokeStyle = col; ctx.lineWidth = 3.5; ctx.shadowColor = col; ctx.shadowBlur = B.final ? 22 + Math.sin(B.t * 6) * 8 : 16;
-  for (const rr of [R + RING_BAND, R - RING_BAND]) { ctx.beginPath(); ctx.arc(cx, cy, rr, Math.PI, Math.PI * 2); ctx.stroke(); }
   ctx.shadowBlur = 0;
+  // dunkle Kanten außen und innen
+  ctx.strokeStyle = edge; ctx.lineWidth = 3.5;
+  for (const rr of [R + RING_BAND, R - RING_BAND]) { ctx.beginPath(); ctx.arc(cx, cy, rr, Math.PI, Math.PI * 2); ctx.stroke(); }
   // Fugen (drehen mit) und Lichter
   for (let k = 0; k < 48; k++) {
     const a = B.rot + k * Math.PI / 24, c = Math.cos(a), s = Math.sin(a);
     if (s > 0.05) continue;
     if (k % 2 === 0) {
-      ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 2;
+      ctx.strokeStyle = B.final ? 'rgba(58,42,8,.45)' : 'rgba(58,16,32,.45)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx + c * (R - RING_BAND + 3), cy + s * (R - RING_BAND + 3)); ctx.lineTo(cx + c * (R + RING_BAND - 3), cy + s * (R + RING_BAND - 3)); ctx.stroke();
     } else if (k % 4 === 1) {
       const on = Math.sin(B.t * 4 + k) > 0;
-      ctx.fillStyle = on ? col : '#5a1a2a';
-      if (on) { ctx.shadowColor = col; ctx.shadowBlur = 8; }
+      ctx.fillStyle = on ? '#ffffff' : edge;
+      if (on) { ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8; }
       ctx.beginPath(); ctx.arc(cx + c * R, cy + s * R, 3, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
     }
   }
   // Mittellinie
-  ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = B.final ? 'rgba(58,42,8,.25)' : 'rgba(58,16,32,.25)'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI, Math.PI * 2); ctx.stroke();
   ctx.restore();
 }
@@ -2767,6 +2895,267 @@ function drawRingBoss(B) {
     for (let i = 0; i < 12; i++) { const rr = i % 2 ? 6 : 13, a = i * Math.PI / 6; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
     ctx.closePath(); ctx.fill();
     ctx.shadowBlur = 0; ctx.fillStyle = '#2a1a40'; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ---------- Sektorboss 3: Bastion ----------
+// Die Bastion steht oben fest in der Mitte und ist hinter ihrem Schild unverwundbar. Das breite
+// Spielfeld ist in drei Bahnen geteilt (L, M, R). Drohnenwände sperren abwechselnd Bahnen: Bevor
+// eine Wand fällt, blinkt die Bahn rot (LANE_WARN s). Wer drin ist, wenn sie landet, nimmt Schaden
+// und wird hinausgeschoben. Ablauf:
+//   1. L+R zu, Kern in M  →  2. M zu, Kern auf der Seite, auf der man steht (A)
+//   3. L+R zu, Kern in M  →  4. M zu, Kern auf der anderen Seite (B)
+//   5. Schild bricht: die Bastion selbst ist verwundbar, zufällig schließen sich 1 oder 2 Bahnen.
+const LANE_WARN = 1.6, LANE_DROP = 0.8, LANE_RISE = 0.6, BASTION_Y = 175;
+const laneX0 = l => ({ L: 0, M: W / 3, R: W * 2 / 3 })[l];
+const laneOf = x => x < W / 3 ? 'L' : x < W * 2 / 3 ? 'M' : 'R';
+const coreSpot = l => ({ x: laneX0(l) + W / 6, y: l === 'M' ? 350 : 310 });
+
+function initBastion(B, mult) {
+  B.x = W / 2; B.y = -170; B.state = 'enter';
+  B.coreHp = Math.round(B.coreHpBase * mult);
+  B.bossHp = B.bossMax = Math.round(B.bossHpBase * mult);
+  B.lanes = { L: { k: 0, target: 0, warnT: 0 }, M: { k: 0, target: 0, warnT: 0 }, R: { k: 0, target: 0, warnT: 0 } };
+  B.cores = []; B.coresDone = 0; B.stage = 0; B.shield = true;
+  B.closing = []; B.onLanded = null; B.sideA = null; B.sideB = null;
+  B.fireT = 2.5; B.spreadT = 5; B.finalPhase = null; B.finalT = 0;
+  B.maxHp = B.coreHp * 4 + B.bossHp; B.hp = B.maxHp;
+}
+
+function closeLanes(B, lanes, warn, cb) {
+  for (const l of lanes) { const L = B.lanes[l]; L.target = 1; L.warnT = warn; }
+  B.closing = lanes; B.onLanded = cb;
+  if (warn > 0) SFX.lock();
+}
+function openLanes(B, lanes) { for (const l of lanes) { B.lanes[l].target = 0; B.lanes[l].warnT = 0; } }
+
+function spawnCore(B, lane) {
+  const s = coreSpot(lane);
+  B.cores.push({ lane, x: s.x, y: s.y, hp: B.coreHp, maxHp: B.coreHp, flashT: 0, t: 0 });
+  floatText(s.x, s.y + 50, 'Kern freigelegt!', '#ffe14a');
+}
+
+// Wand gelandet: Wer noch in der Bahn ist, nimmt Schaden und wird in die nächste freie Bahn geschoben.
+function laneLanded(B, l) {
+  const p = G.player;
+  if (laneOf(p.x) === l) {
+    playerHit(); G.shake = 0.5;
+    const free = LANES.filter(o => B.lanes[o].target === 0);
+    let best = null, bd = 1e9;
+    for (const o of free) {
+      const x0 = laneX0(o), tx = Math.max(x0 + 40, Math.min(x0 + W / 3 - 40, p.x)), d = Math.abs(tx - p.x);
+      if (d < bd) { bd = d; best = tx; }
+    }
+    if (best !== null) { p.x = best; explode(p.x, p.y, '#ff3355', 14); }
+  }
+  explode(laneX0(l) + W / 6, H - 20, '#ff3355', 10);
+  SFX.clank();
+}
+const LANES = ['L', 'M', 'R'];
+
+// Nächster Abschnitt, sobald ein Kern zerstört ist.
+function bastionNext(B) {
+  const p = G.player;
+  if (B.stage === 1) {
+    openLanes(B, ['L', 'R']);
+    closeLanes(B, ['M'], LANE_WARN, () => { B.sideA = laneOf(p.x) === 'R' ? 'R' : 'L'; spawnCore(B, B.sideA); B.stage = 2; });
+  } else if (B.stage === 2) {
+    openLanes(B, ['M']);
+    closeLanes(B, ['L', 'R'], LANE_WARN, () => { spawnCore(B, 'M'); B.stage = 3; });
+  } else if (B.stage === 3) {
+    B.sideB = B.sideA === 'L' ? 'R' : 'L';
+    openLanes(B, [B.sideB]);
+    closeLanes(B, ['M'], LANE_WARN, () => { spawnCore(B, B.sideB); B.stage = 4; });
+  } else if (B.stage === 4) {
+    openLanes(B, ['M']);
+    closeLanes(B, [B.sideB], LANE_WARN, () => {
+      B.shield = false; B.stage = 5; B.finalPhase = 'hold'; B.finalT = 3;
+      floatText(W / 2, 300, 'Schild gebrochen!', '#ffe14a'); SFX.coreBreak(); G.shake = 0.6;
+      for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8; explode(B.x + Math.cos(a) * 130, B.y + Math.sin(a) * 95, '#8fb4ff', 6); }
+    });
+  }
+}
+
+// Letzte Phase: Bahnen öffnen, dann zufällig 1 oder 2 der 3 Bahnen schließen, halten, wieder öffnen.
+function bastionFinal(B, dt) {
+  B.finalT -= dt;
+  if (B.finalT > 0 || B.onLanded) return;
+  if (B.finalPhase === 'hold') {
+    openLanes(B, LANES); B.finalPhase = 'open'; B.finalT = 2.2;
+  } else {
+    const n = Math.random() < 0.55 ? 1 : 2, shut = shuffle(LANES.slice()).slice(0, n);
+    closeLanes(B, shut, LANE_WARN, () => { B.finalPhase = 'hold'; B.finalT = 3.5; });
+  }
+}
+
+function updateBastion(dt) {
+  const B = G.bigBoss, p = G.player;
+  playerStep(dt);
+  updateBullets(dt);
+  updateEnemyShots(dt);
+  B.t += dt; B.flashT -= dt;
+
+  if (B.state === 'enter') {
+    B.y = Math.min(BASTION_Y, B.y + 160 * dt);
+    if (B.y >= BASTION_Y) {
+      B.state = 'fight';
+      closeLanes(B, ['L', 'R'], 1.2, () => { spawnCore(B, 'M'); B.stage = 1; });
+    }
+  }
+
+  // Wände bewegen; Landung prüfen.
+  for (const l of LANES) {
+    const L = B.lanes[l];
+    if (L.target === 1) {
+      if (L.warnT > 0) L.warnT -= dt;
+      else if (L.k < 1) { L.k = Math.min(1, L.k + dt / LANE_DROP); if (L.k >= 1) laneLanded(B, l); }
+    } else L.k = Math.max(0, L.k - dt / LANE_RISE);
+  }
+  if (B.onLanded && B.closing.every(l => B.lanes[l].k >= 1)) { const cb = B.onLanded; B.onLanded = null; cb(); }
+
+  // Flugbereich: zusammenhängende freie Bahnen rund um das Schiff (Wand zählt erst, wenn gelandet).
+  const order = LANES, i = order.indexOf(laneOf(p.x)), free = l => B.lanes[l].k < 1;
+  let lo = i, hi = i;
+  while (lo > 0 && free(order[lo - 1])) lo--;
+  while (hi < 2 && free(order[hi + 1])) hi++;
+  G.wallL = laneX0(order[lo]); G.wallR = W - (laneX0(order[hi]) + W / 3);
+
+  if (B.stage === 5) bastionFinal(B, dt);
+
+  // Angriffe (die Bastion selbst bewegt sich nicht)
+  if (B.state === 'fight') {
+    const fin = B.stage === 5;
+    B.fireT -= dt;
+    if (B.fireT <= 0) {
+      const sx = B.x, sy = B.y + 66, a = Math.atan2(p.y - sy, p.x - sx);
+      G.shots.push({ x: sx, y: sy, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, color: '#c77dff' });
+      B.fireT = fin ? 1.1 : 1.6; SFX.enemyShot();
+    }
+    B.spreadT -= dt;
+    if (B.spreadT <= 0) {
+      for (const sx of [B.x - 70, B.x + 70]) {
+        const a = Math.atan2(p.y - (B.y + 40), p.x - sx);
+        for (const s of [-0.3, -0.15, 0, 0.15, 0.3]) G.shots.push({ x: sx, y: B.y + 40, vx: Math.cos(a + s) * 200, vy: Math.sin(a + s) * 200, color: '#ffd84a' });
+      }
+      B.spreadT = fin ? 4 : 5.5; SFX.enemyShot();
+    }
+  }
+
+  // Treffer
+  const mult = currentSkin().bossDmg || 1;
+  for (const b of G.bullets) {
+    if (b.x < G.wallL || b.x > W - G.wallR) { b.hit = true; explode(b.x, b.y, '#8f9ac4', 3); continue; }   // Wand
+    const c = B.cores.find(cc => cc.hp > 0 && Math.hypot(b.x - cc.x, b.y - cc.y) < 30);
+    if (c) {
+      b.hit = true; c.hp -= hitDamage(b) * mult; c.flashT = 0.06; G.score += 3 * G.round;
+      if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
+      explode(b.x, b.y, '#ffffff', 3);
+      if (c.hp <= 0) {
+        explode(c.x, c.y, '#ffe14a', 34); explode(c.x, c.y, '#b07cff', 18);
+        floatText(c.x, c.y + 50, 'Kern zerstört!', '#ffe14a');
+        SFX.coreBreak(); G.shake = 0.5; G.score += 100 * G.round;
+        B.cores = B.cores.filter(cc => cc !== c); B.coresDone++;
+        bastionNext(B);
+      }
+      continue;
+    }
+    const ex = (b.x - B.x) / 135, ey = (b.y - B.y) / 100;
+    if (B.shield && ex * ex + ey * ey < 1) { b.hit = true; explode(b.x, b.y, '#8fb4ff', 3); continue; }   // Schild
+    if (!B.shield && Math.abs(b.x - B.x) < 120 && Math.abs(b.y - B.y) < 62) {
+      b.hit = true; B.bossHp -= hitDamage(b) * mult; B.flashT = 0.06; G.score += 3 * G.round;
+      if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
+      explode(b.x, b.y, '#ffffff', 3);
+    }
+  }
+  G.bullets = G.bullets.filter(b => !b.hit && b.y > -20 && b.x > -20 && b.x < W + 20);
+  for (const c of B.cores) { c.flashT -= dt; c.t += dt; }
+  const pending = 4 - B.coresDone - B.cores.length;
+  B.hp = Math.max(0, pending) * B.coreHp + B.cores.reduce((s, c) => s + Math.max(0, c.hp), 0) + Math.max(0, B.bossHp);
+
+  if (G.hull <= 0 && !tryRevive()) return gameOver();
+  if (B.bossHp <= 0) return bigBossDefeated();
+}
+
+// ---------- Bastion zeichnen (Neon-Stil wie der Rest) ----------
+function drawBastion(B) {
+  const blink = Math.floor(performance.now() / 120) % 2, c = B.flashT > 0 ? '#ffffff' : B.color;
+  // Bahnen: Warnung und Drohnenwände
+  for (const l of LANES) {
+    const L = B.lanes[l], x0 = laneX0(l), w = W / 3;
+    if (L.target === 1 && L.warnT > 0) {
+      ctx.fillStyle = `rgba(255,51,85,${blink ? 0.16 : 0.06})`; ctx.fillRect(x0, 0, w, H);
+      ctx.strokeStyle = 'rgba(255,51,85,.7)'; ctx.lineWidth = 3; ctx.setLineDash([12, 10]);
+      ctx.strokeRect(x0 + 2, 2, w - 4, H - 4); ctx.setLineDash([]);
+    }
+    if (L.k > 0) {
+      ctx.fillStyle = `rgba(255,51,85,${0.08 * L.k})`; ctx.fillRect(x0, 0, w, H);
+      for (let cx = x0 + 34, ci = 0; cx < x0 + w - 10; cx += 66, ci++) {
+        for (let y = 70 + (ci % 2) * 30; y < H; y += 62) {
+          const yy = -40 + (y + 40) * L.k;
+          drawMiniDrone(cx, yy + Math.sin(B.t * 3 + cx + y) * 3, B.t + ci, false);
+        }
+      }
+      if (L.k >= 1) {
+        ctx.strokeStyle = 'rgba(255,51,85,.55)'; ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
+        for (const ex of [x0, x0 + w]) if (ex > 0 && ex < W) { ctx.beginPath(); ctx.moveTo(ex, 0); ctx.lineTo(ex, H); ctx.stroke(); }
+        ctx.setLineDash([]);
+      }
+    }
+  }
+  // Verbindungsleitungen zu den Kernen
+  for (const k of B.cores) {
+    ctx.strokeStyle = 'rgba(176,124,255,.55)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(B.x, B.y + 30); ctx.quadraticCurveTo((B.x + k.x) / 2, k.y - 40, k.x, k.y); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,225,74,${0.4 + Math.sin(B.t * 6) * 0.3})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(B.x, B.y + 30); ctx.quadraticCurveTo((B.x + k.x) / 2, k.y - 40, k.x, k.y); ctx.stroke();
+  }
+  // Rumpf: breite Festung, dunkle Fläche, Neonkante
+  ctx.save(); ctx.translate(B.x, B.y);
+  const hullPts = [[-130, -50], [-60, -66], [60, -66], [130, -50], [150, -10], [110, 38], [44, 62], [-44, 62], [-110, 38], [-150, -10]];
+  ctx.fillStyle = '#1c1430'; ctx.strokeStyle = c; ctx.lineWidth = 4; ctx.shadowColor = c; ctx.shadowBlur = 20;
+  ctx.beginPath(); hullPts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
+  ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+  // Panzerplatten und Türme
+  ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-130, -30); ctx.lineTo(130, -30);
+  ctx.moveTo(-60, -66); ctx.lineTo(-50, 62); ctx.moveTo(60, -66); ctx.lineTo(50, 62);
+  ctx.moveTo(-150, -10); ctx.lineTo(-100, 10); ctx.moveTo(150, -10); ctx.lineTo(100, 10);
+  ctx.stroke();
+  ctx.fillStyle = c;
+  for (const sx of [-70, 70]) { ctx.fillRect(sx - 6, 36, 12, 18); ctx.fillStyle = '#ffffffcc'; ctx.fillRect(sx - 6, 50, 12, 4); ctx.fillStyle = c; }
+  ctx.fillRect(-7, 56, 14, 16);
+  for (const lx of [-110, -40, 40, 110]) {
+    const on = Math.sin(B.t * 5 + lx) > 0;
+    ctx.fillStyle = on ? c : '#3a2a5a'; if (on) { ctx.shadowColor = c; ctx.shadowBlur = 8; }
+    ctx.beginPath(); ctx.arc(lx, -44, 3, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+  }
+  // Auge / Hauptkern: geschützt blau-gedämpft, offen gelb leuchtend
+  const eye = B.shield ? '#5a6fa8' : (B.flashT > 0 ? '#ffffff' : '#ffe14a');
+  ctx.fillStyle = '#0d0a1a'; ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = eye; ctx.shadowColor = eye; ctx.shadowBlur = B.shield ? 6 : 26;
+  ctx.beginPath(); ctx.arc(0, 0, 18 + (B.shield ? 0 : Math.sin(B.t * 6) * 2), 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.ellipse(-5, -5, 4, 6, 0, 0, Math.PI * 2); ctx.fill();
+  // Schild
+  if (B.shield) {
+    ctx.strokeStyle = `rgba(143,180,255,${0.55 + Math.sin(B.t * 3) * 0.15})`; ctx.fillStyle = 'rgba(143,180,255,.07)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, 0, 135 + Math.sin(B.t * 2) * 3, 100, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(143,180,255,.2)'; ctx.lineWidth = 1.5;
+    for (let k = -3; k <= 3; k++) { ctx.beginPath(); ctx.ellipse(0, 0, 135 * Math.cos(k * 0.22), 100, 0, 0, Math.PI * 2); ctx.stroke(); }
+  }
+  ctx.restore();
+  // Kerne wie bei den Mini-Bossen: gelb leuchtend, roter Lebensring
+  for (const k of B.cores) {
+    const col = k.flashT > 0 ? '#ffffff' : '#ffe14a';
+    ctx.save(); ctx.translate(k.x, k.y);
+    ctx.fillStyle = '#1c1430'; ctx.strokeStyle = B.color; ctx.lineWidth = 3;
+    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + Math.PI / 6; ctx.lineTo(Math.cos(a) * 30, Math.sin(a) * 30); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18 + Math.sin(k.t * 6) * 6;
+    ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#fff8d0'; ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#ff3355'; ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.arc(0, 0, 37, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, k.hp / k.maxHp)); ctx.stroke();
     ctx.restore();
   }
 }
@@ -2974,10 +3363,11 @@ function drawHud() {
     ctx.fillStyle = '#ffc94a'; ctx.fillText('⚡ ∞ Schuss', W - 14, 17);
     ctx.textAlign = 'left'; ctx.fillStyle = '#ff6bd6'; ctx.font = '700 14px system-ui, sans-serif'; ctx.fillText('TESTMODUS', 14, 50);
   } else {
-    const low = G.ammo.length < 15;
+    const low = G.ammo.length < 15, empty = !G.ammo.length;
     ctx.fillStyle = low ? '#ff5d73' : '#ffc94a'; ctx.fillText(`⚡ ${G.ammo.length} Schuss`, W - 14, 17);
-    if (low && !G.bonus && Math.floor(performance.now() / 300) % 2) {
-      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillText(isTouch ? 'Munition knapp! Nachladen ↓' : 'Munition knapp! R = Nachladen', W - 14, 50);
+    if (low && !G.bonus && (empty || Math.floor(performance.now() / 300) % 2)) {
+      const what = empty ? 'Keine Munition!' : 'Munition knapp!';
+      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillText(isTouch ? `${what} Nachladen ↓` : `${what} R = Nachladen`, W - 14, 50);
     }
     ctx.textAlign = 'left'; ctx.font = '700 15px ui-monospace, monospace'; ctx.fillStyle = '#ffc94a';
     ctx.fillText('Nächste: ' + G.ammo.slice(0, 14).join(' ') + (G.ammo.length > 14 ? ' …' : ''), 14, H - 14);
@@ -3035,6 +3425,7 @@ function draw(dt) {
     }
     if (G.boss && G.boss.state !== 'dead') drawBoss(G.boss);
     if (G.bigBoss) drawBigBoss(G.bigBoss);
+    if (G.ghost) drawGhost(G.ghost);
     for (const d of G.drops) drawDrop(d);
     ctx.font = '800 20px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const shipColor = currentSkin().color;   // Projektile in der Farbe des eigenen Schiffs
@@ -3094,14 +3485,14 @@ function draw(dt) {
     if (phase === 'shoot' || phase === 'pause' || (phase === 'boss' && G.arcade)) drawHud();
     if (phase === 'shoot' && G.hintT > 0 && G.arcade) {
       ctx.fillStyle = '#e8ecff'; ctx.font = '600 20px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(isTouch ? 'Finger aufs Spielfeld: bewegen + feuern' : '← → oder A/D bewegen · Leertaste feuern', W / 2, H / 2 + 60);
+      ctx.fillText(isTouch ? 'Finger auflegen + ziehen: bewegen + feuern' : 'Pfeiltasten oder WASD bewegen · Leertaste feuern', W / 2, H / 2 + 60);
       ctx.fillText(isTouch ? '⏸ oben links = Pause' : 'Esc = Pause', W / 2, H / 2 + 88);
       ctx.fillStyle = '#8f9ac4'; ctx.font = '16px system-ui, sans-serif';
       ctx.fillText('Dauerfeuer überhitzt die Kanone – kurz loslassen kühlt ab.', W / 2, H / 2 + 122);
       ctx.fillText(`Jeder durchgekommene Gleiter beschädigt die Hülle (${maxHull()} Treffer).`, W / 2, H / 2 + 144);
     } else if (phase === 'shoot' && G.hintT > 0) {
       ctx.fillStyle = '#e8ecff'; ctx.font = '600 20px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(isTouch ? 'Finger aufs Spielfeld: bewegen + feuern' : '← → oder A/D bewegen · Leertaste feuern', W / 2, H / 2 + 60);
+      ctx.fillText(isTouch ? 'Finger auflegen + ziehen: bewegen + feuern' : 'Pfeiltasten oder WASD bewegen · Leertaste feuern', W / 2, H / 2 + 60);
       ctx.fillText(isTouch ? '🔄 Nachladen oben rechts · ⏸ Pause' : 'R = Nachladen · Esc = Pause', W / 2, H / 2 + 88);
       ctx.fillStyle = '#8f9ac4'; ctx.font = '16px system-ui, sans-serif';
       ctx.fillText('Nachladen = Vokabeln tippen.', W / 2, H / 2 + 122);
@@ -3243,7 +3634,7 @@ function closeDev() {
 
 // Sprung an eine andere Stelle im Spiel: alles Laufende wegräumen.
 function devReset() {
-  G.boss = null; G.bigBoss = null; G.enemies = []; G.bullets = []; G.drops = []; G.shots = [];
+  G.boss = null; G.bigBoss = null; G.ghost = null; G.enemies = []; G.bullets = []; G.drops = []; G.shots = [];
   G.wallL = G.wallR = 0;
   setFieldWidth(W_NARROW);
   showPanel(null);
@@ -3261,6 +3652,11 @@ function devAction(a) {
   }
   if (a.startsWith('boss-')) { devReset(); return startBoss(a.slice(5)); }
   if (a.startsWith('bigboss-')) { devReset(); return startBigBoss(a.slice(8)); }
+  if (a === 'nextsector') {   // aktuellen Sektor als geschafft werten, neue Karte des nächsten Sektors zeigen
+    devReset(); G.curse = null; G.ghost = null;
+    if (G.map) { const boss = G.map.nodes.find(n => n.type === 'boss'); G.map.cur = boss.id; }
+    return mapStep();
+  }
   if (a === 'clear' && G.bigBoss) {
     const B = G.bigBoss;
     if (B.id === 'ring') { for (const m of B.mods) m.hp = 0; B.final = true; B.ringHp = 0; }   // Ring rechnet seine Leben aus Türmen + Ring
@@ -3352,15 +3748,26 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; pointer.active = false; if (phase === 'shoot' || phase === 'boss') togglePause(); });
 
-function pointerPos(e) { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) * W / r.width; }
-// Bewegen + Feuern per Finger/Maus: überall auf dem Bildschirm, auch neben dem Spielfeld
-// (außer auf Buttons, Eingabefeldern und Fenstern). Links/rechts vom Spielfeld = Schiff an den Rand.
+function pointerPos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+// Bewegen + Feuern per Finger/Maus wie auf einem Touchpad: überall auf dem Bildschirm
+// (außer auf Buttons, Eingabefeldern und Fenstern). Das Schiff springt nicht zum Finger,
+// sondern bewegt sich so weit, wie der Finger geschoben wird – so verdeckt er das Schiff nie.
 const isFlying = () => G && (phase === 'shoot' || (phase === 'boss' && G.arcade));
 document.addEventListener('pointerdown', e => {
-  if (!isFlying() || e.target.closest('button, input, textarea, select, .panel')) return;
-  pointer.active = true; pointer.x = pointerPos(e);
+  if (!isFlying() || (e.target.closest && e.target.closest('button, input, textarea, select, .panel'))) return;
+  const q = pointerPos(e);
+  pointer.active = true; pointer.x = q.x; pointer.y = q.y;
+  pointer.tx = G.player.x; pointer.ty = G.player.y;
 });
-window.addEventListener('pointermove', e => { if (pointer.active) pointer.x = pointerPos(e); });
+window.addEventListener('pointermove', e => {
+  if (!pointer.active) return;
+  const q = pointerPos(e);
+  pointer.tx += q.x - pointer.x; pointer.ty += q.y - pointer.y;
+  pointer.x = q.x; pointer.y = q.y;
+});
 // iOS: während des Fliegens nicht scrollen/zoomen, sonst bricht Safari die Berührung ab.
 document.addEventListener('touchmove', e => { if (isFlying()) e.preventDefault(); }, { passive: false });
 window.addEventListener('pointerup', () => { pointer.active = false; });
