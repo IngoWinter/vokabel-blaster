@@ -12,6 +12,7 @@
     /* iPad/Touch: kein Doppeltipp-Zoom, kein Markieren/Kontextmenü bei langem Drücken */
     touch-action:manipulation; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
   input, textarea { -webkit-user-select:text; user-select:text; }
+  body.flying { touch-action:none; }   /* während des Fliegens: Finger überall = Steuerung, kein Scrollen */
   #wrap { position:relative; width:min(100%, 600px, calc((100vh - 16px) * 0.75)); aspect-ratio:3/4; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
   /* dvh = sichtbare Höhe ohne Safari-Leisten */
   @supports (height:100dvh) { #wrap { width:min(100%, 600px, calc((100dvh - 16px) * 0.75)); } }
@@ -1917,6 +1918,7 @@ let touchState = '';
 function updateTouchUi() {
   const fly = G && (phase === 'shoot' || (phase === 'boss' && G.arcade));
   const reload = fly && phase === 'shoot' && !G.arcade && !G.test;
+  document.body.classList.toggle('flying', !!fly);
   const state = isTouch && fly ? (reload ? 'both' : 'pause') : 'none';
   if (state === touchState) return;
   touchState = state;
@@ -2105,8 +2107,16 @@ document.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; pointer.active = false; if (phase === 'shoot' || phase === 'boss') togglePause(); });
 
 function pointerPos(e) { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) * W / r.width; }
-cv.addEventListener('pointerdown', e => { if (phase === 'shoot' || (phase === 'boss' && G.arcade)) { pointer.active = true; pointer.x = pointerPos(e); } });
-cv.addEventListener('pointermove', e => { if (pointer.active) pointer.x = pointerPos(e); });
+// Bewegen + Feuern per Finger/Maus: überall auf dem Bildschirm, auch neben dem Spielfeld
+// (außer auf Buttons, Eingabefeldern und Fenstern). Links/rechts vom Spielfeld = Schiff an den Rand.
+const isFlying = () => G && (phase === 'shoot' || (phase === 'boss' && G.arcade));
+document.addEventListener('pointerdown', e => {
+  if (!isFlying() || e.target.closest('button, input, textarea, select, .panel')) return;
+  pointer.active = true; pointer.x = pointerPos(e);
+});
+window.addEventListener('pointermove', e => { if (pointer.active) pointer.x = pointerPos(e); });
+// iOS: während des Fliegens nicht scrollen/zoomen, sonst bricht Safari die Berührung ab.
+document.addEventListener('touchmove', e => { if (isFlying()) e.preventDefault(); }, { passive: false });
 window.addEventListener('pointerup', () => { pointer.active = false; });
 window.addEventListener('pointercancel', () => { pointer.active = false; });
 // iPad: beim Wechsel in eine andere App oder Sperren automatisch pausieren.
