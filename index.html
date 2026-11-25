@@ -8,8 +8,23 @@
   :root { --bg:#070b1a; --panel:rgba(12,18,40,.92); --line:#2b3a6b; --text:#e8ecff; --muted:#8f9ac4; --accent:#3ee0ff; --good:#5bf08a; --warn:#ffc94a; --bad:#ff5d73; }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
-  body { display:flex; align-items:center; justify-content:center; padding:8px; }
+  body { display:flex; align-items:center; justify-content:center; padding:8px; overscroll-behavior:none;
+    /* iPad/Touch: kein Doppeltipp-Zoom, kein Markieren/Kontextmenü bei langem Drücken */
+    touch-action:manipulation; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+  input, textarea { -webkit-user-select:text; user-select:text; }
   #wrap { position:relative; width:min(100%, 600px, calc((100vh - 16px) * 0.75)); aspect-ratio:3/4; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  /* dvh = sichtbare Höhe ohne Safari-Leisten */
+  @supports (height:100dvh) { #wrap { width:min(100%, 600px, calc((100dvh - 16px) * 0.75)); } }
+  /* Touch-Geräte (iPad): Spielfeld darf größer werden */
+  @media (pointer:coarse) {
+    #wrap { width:min(100%, 900px, calc((100vh - 16px) * 0.75)); }
+    @supports (height:100dvh) { #wrap { width:min(100%, 900px, calc((100dvh - 16px) * 0.75)); } }
+    textarea { font-size:16px !important; }   /* verhindert Auto-Zoom von iOS beim Tippen */
+  }
+  #touch { position:absolute; inset:0; pointer-events:none; }
+  #touch button { position:absolute; pointer-events:auto; background:rgba(12,18,40,.8); color:var(--text); border:1px solid var(--line); padding:8px 14px; font-size:1rem; }
+  #tPause { left:2%; top:11.5%; width:46px; height:46px; padding:0 !important; font-size:1.3rem !important; }
+  #tReload { right:2%; top:11.5%; }
   canvas { display:block; width:100%; height:100%; touch-action:none; }
   #ui, #fx { position:absolute; inset:0; pointer-events:none; }
   #ui { display:flex; align-items:center; justify-content:center; padding:16px; }
@@ -23,6 +38,7 @@
   .topics { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:6px 14px; }
   label { display:inline-flex; gap:8px; align-items:center; cursor:pointer; }
   .opts { display:flex; gap:16px; flex-wrap:wrap; }
+  #mode { background:#0b1230; color:var(--text); border:1px solid var(--line); border-radius:9px; padding:8px 12px; font:inherit; cursor:pointer; }
   textarea { width:100%; min-height:100px; background:#0b1230; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; font:inherit; font-size:.9rem; }
   button { font:inherit; font-weight:600; border:0; border-radius:9px; padding:10px 18px; cursor:pointer; background:var(--accent); color:#04121a; }
   button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
@@ -31,6 +47,8 @@
   .ships { display:flex; gap:8px; flex-wrap:wrap; }
   .ships button { background:#0b1230; color:var(--text); border:2px solid var(--line); padding:6px 12px; font-size:.9rem; }
   .ships button.sel { border-color:var(--accent); }
+  .ships button.locked { opacity:.5; }
+  #shipDesc b { color:var(--text); }
   .row { display:flex; gap:10px; justify-content:flex-end; align-items:center; margin-top:14px; flex-wrap:wrap; }
   .row.left { justify-content:space-between; }
   .qhead { display:flex; justify-content:space-between; color:var(--muted); font-size:.95rem; }
@@ -54,11 +72,37 @@
   #banner { position:absolute; left:0; right:0; top:36%; padding:0 16px; text-align:center; font-size:2.6rem; font-weight:800; color:var(--warn); text-shadow:0 0 24px rgba(255,201,74,.6); pointer-events:none; }
   #banner small { display:block; font-size:1.05rem; font-weight:600; color:var(--text); text-shadow:none; margin-top:8px; }
   .fly { position:absolute; font-weight:800; font-size:1.4rem; color:var(--warn); text-shadow:0 0 10px rgba(255,201,74,.8); transition:transform .7s cubic-bezier(.5,-.3,.6,1), opacity .7s; }
+  #upgrade { width:min(100%, 560px); text-align:center; }
+  #upgrade h2 { color:var(--warn); }
+  .cards { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin:12px 0 6px; }
+  .card { background:#0b1230; color:var(--text); border:2px solid var(--line); border-radius:12px; padding:12px 8px; min-height:170px;
+    display:flex; flex-direction:column; align-items:center; gap:6px; font-weight:400; transition:transform .12s, box-shadow .12s; }
+  .card:disabled { opacity:1; cursor:default; }
+  .card:not(:disabled):hover { transform:translateY(-4px); filter:none; }
+  .card.spin .ic, .card.spin .nm { filter:blur(1.5px); opacity:.6; }
+  .card.spin .ds, .card.spin .lv { visibility:hidden; }
+  .card .key { font-size:.75rem; color:var(--muted); }
+  .card .ic { font-size:2rem; line-height:1.1; }
+  .card .nm { font-weight:800; }
+  .card .ds { font-size:.85rem; color:var(--muted); line-height:1.35; }
+  .card .lv { font-size:.75rem; margin-top:auto; }
+  .card.common { border-color:#5f6b99; } .card.common .lv { color:#8f9ac4; }
+  .card.rare { border-color:var(--accent); } .card.rare .lv { color:var(--accent); }
+  .card.epic { border-color:#ff6bd6; box-shadow:0 0 18px rgba(255,107,214,.35); } .card.epic .lv { color:#ff6bd6; }
+  .card.landed { animation:land .25s; }
+  @keyframes land { 50% { transform:scale(1.07); } }
+  .owned { font-size:.85rem; }
+  @media (max-width:480px) { .cards { grid-template-columns:1fr; } .card { min-height:0; } }
   .missed { margin:10px 0; padding:0; list-style:none; columns:2; font-size:.95rem; }
   .missed li { margin:2px 0; }
   .stats { display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin:12px 0; }
   .stats b { color:var(--accent); }
   .progress { color:var(--good); }
+  .devrow { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .devrow button { padding:7px 12px; font-size:.9rem; }
+  .devrow input { width:80px; font:inherit; padding:7px 10px; border-radius:9px; border:1px solid var(--line); background:#0b1230; color:var(--text); }
+  #dev { border-color:var(--warn); }
+  #dev h2 { color:var(--warn); }
 </style>
 </head>
 <body>
@@ -67,7 +111,13 @@
   <div id="ui">
     <div id="menu" class="panel">
       <h1>VOKABEL-BLASTER</h1>
-      <p>Raumgleiter greifen an. Deine Munition sind Buchstaben: Mit <b>R</b> lädst du nach, indem du Vokabeln richtig eintippst. Jeder durchgekommene Gleiter beschädigt deine Hülle. Nach 5 Treffern ist das Spiel vorbei.</p>
+      <p id="menuIntro"></p>
+      <h3>Modus</h3>
+      <select id="mode">
+        <option value="arcade">Arcade</option>
+        <option value="learn">Lernmodus</option>
+      </select>
+      <div id="learnOpts">
       <h3>Themen</h3>
       <div class="topics" id="topics"></div>
       <div style="margin-top:8px"><label><input type="checkbox" id="useCustom"> Eigene Vokabelliste</label></div>
@@ -80,12 +130,14 @@
         <label><input type="radio" name="dir" value="de-es"> Deutsch → Spanisch</label>
         <label><input type="radio" name="dir" value="es-de"> Spanisch → Deutsch (leichter)</label>
       </div>
+      </div>
       <h3>Raumschiff</h3>
       <div class="ships" id="ships"></div>
+      <p class="hint" id="shipDesc" style="margin-top:8px"></p>
       <p class="progress" id="progress"></p>
       <div class="row left">
         <span class="hint" id="hiscore"></span>
-        <span><button class="ghost" id="musicBtn">Musik: an</button> <button class="ghost" id="muteBtn">Ton: an</button> <button id="startBtn">Start ⏎</button></span>
+        <span><button class="ghost" id="cheatBtn">Codes</button> <button class="ghost" id="musicBtn">Musik: an</button> <button class="ghost" id="muteBtn">Ton: an</button> <button id="startBtn">Start ⏎</button></span>
       </div>
       <p id="menuErr" class="fb bad" style="min-height:0"></p>
     </div>
@@ -99,13 +151,14 @@
       <div class="fb" id="qFb"></div>
       <div class="row">
         <span class="hint" style="margin-right:auto" id="qKeyHint"></span>
+        <button class="ghost" id="qBack" type="button">Weiterspielen</button>
         <button class="ghost" id="qSkip">Weiß ich nicht</button>
         <button id="qOk">Prüfen ⏎</button>
       </div>
     </div>
 
     <div id="bossPanel" class="panel boss hidden">
-      <div class="qhead"><span>BOSS · Übersetze, um ihn zu zerstören</span><span id="bTime"></span></div>
+      <div class="qhead"><span id="bTitle">BOSS</span><span id="bTime"></span></div>
       <div class="prompt" id="bPrompt"></div>
       <input id="bInput" class="answer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       <div class="accents" id="bAccents"></div>
@@ -113,11 +166,66 @@
       <div class="fb" id="bFb"></div>
     </div>
 
+    <div id="upgrade" class="panel hidden">
+      <h2>Upgrade wählen</h2>
+      <p>Gilt bis zum Ende dieses Spiels. Klicken oder Taste <b>1</b>, <b>2</b>, <b>3</b>. Einmal neu würfeln kostet Münzen.</p>
+      <div class="cards" id="cards"></div>
+      <div class="row" style="justify-content:center;margin-top:8px">
+        <span class="ammo" id="upCoins"></span>
+        <button class="ghost" id="rerollBtn" type="button"></button>
+      </div>
+      <p class="owned" id="upOwned"></p>
+    </div>
+
     <div id="pause" class="panel hidden" style="width:min(100%,360px);text-align:center">
       <h2>Pause</h2>
+      <p class="owned" id="pauseUps"></p>
       <div class="row" style="justify-content:center">
         <button class="ghost" id="quitBtn">Spiel beenden</button>
+        <button class="ghost hidden" id="pauseDev">🛠 Entwickler</button>
         <button id="resumeBtn">Weiter (Esc)</button>
+      </div>
+    </div>
+
+    <div id="cheat" class="panel hidden" style="width:min(100%,400px)">
+      <h2>Codes</h2>
+      <p>Gib einen Code ein und drücke Enter.</p>
+      <input id="cheatInput" class="answer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <p id="cheatFb" class="fb" style="min-height:1.6em"></p>
+      <div class="row">
+        <button class="ghost" id="cheatBack">Zurück (Esc)</button>
+        <button id="cheatOk">Einlösen ⏎</button>
+      </div>
+    </div>
+
+    <div id="dev" class="panel hidden" style="width:min(100%,470px)">
+      <h2>🛠 Entwickler-Menü</h2>
+      <h3>Welle</h3>
+      <div class="devrow">
+        <input id="devWave" type="number" min="1" max="99" value="2">
+        <button data-dev="wave">Zu Welle springen</button>
+        <button class="ghost" data-dev="clear">Welle / Boss sofort beenden</button>
+      </div>
+      <h3>Boss jetzt starten</h3>
+      <div class="devrow">
+        <button data-dev="boss-normal">Boss</button>
+        <button data-dev="boss-heavy">Koloss</button>
+        <button data-dev="boss-fast">Jäger</button>
+      </div>
+      <h3>Schiff</h3>
+      <div class="devrow">
+        <button data-dev="ammo">+100 Schuss</button>
+        <button data-dev="stars">+20 ★</button>
+        <button data-dev="repair">Hülle reparieren</button>
+        <button data-dev="shield">Schild</button>
+        <button data-dev="powers">Alle Power-ups</button>
+        <button data-dev="god" id="devGod">Unverwundbar: aus</button>
+      </div>
+      <p id="devFb" class="fb good" style="min-height:1.4em;margin-top:8px"></p>
+      <p class="hint">Öffnen im Spiel: F2 oder Pausenmenü. Wer das Menü benutzt, bekommt in diesem Spiel keinen Highscore.</p>
+      <div class="row">
+        <button class="ghost" id="devOff">Entwicklermodus ausschalten</button>
+        <button id="devClose">Schließen (Esc)</button>
       </div>
     </div>
 
@@ -134,6 +242,10 @@
     </div>
   </div>
   <div id="fx"></div>
+  <div id="touch" class="hidden">
+    <button id="tPause" type="button" aria-label="Pause">⏸</button>
+    <button id="tReload" type="button" class="hidden">🔄 Nachladen</button>
+  </div>
   <div id="banner" class="hidden"></div>
 </div>
 
@@ -184,20 +296,31 @@ const DIRS = {
   'es-de': { from: 1, to: 0, label: 'Auf Deutsch:', accents: ['ä','ö','ü','ß'], keyHint: '' },
 };
 
+// Jedes Schiff hat eigene Stärken und Schwächen:
+// hull = Hüllenpunkte, speed = Tempo-Faktor, dmg = Schaden pro Schuss (★ +1), cool = Feuerpause-Faktor,
+// fan = schießt immer gefächert (3 Kugeln pro Buchstabe), save = Chance, dass ein Schuss keine Munition kostet,
+// shot = Geschwindigkeit der Geschosse (1 = normal, 750 px/s),
+// ghost = jeder n-te Schuss ist ein Phantomschuss, der durch alle Gegner in seiner Bahn fliegt.
 const SKINS = [
-  { id: 'falke',   name: 'Falke',   color: '#3ee0ff', wing: 18 },
-  { id: 'komet',   name: 'Komet',   color: '#5bf08a', wing: 22, need: '100 Abschüsse insgesamt', ok: s => s.totalKills >= 100 },
-  { id: 'nova',    name: 'Nova',    color: '#ff6bd6', wing: 26, fins: true, need: 'Highscore ab 3000', ok: s => s.hiscore >= 3000 },
-  { id: 'phantom', name: 'Phantom', color: '#ffc94a', wing: 24, fins: true, need: '30 Wörter sicher', ok: s => s.secure >= 30 },
+  { id: 'falke',   name: 'Falke',   color: '#3ee0ff', wing: 18, hull: 6, speed: 1, dmg: 1, cool: 1,
+    desc: 'Allrounder mit extra dicker Panzerung: 6 Hüllenpunkte statt 5. Sonst ganz normal.' },
+  { id: 'komet',   name: 'Komet',   code: 'KOMET',   color: '#5bf08a', wing: 22, hull: 5, speed: 0.7, dmg: 2, cool: 1.15, shot: 0.65,
+    desc: 'Schwere Geschosse: doppelter Schaden, Panzergleiter fallen mit einem Treffer. Dafür deutlich langsamer, auch die Geschosse.',
+    need: '100 Abschüsse insgesamt', ok: s => s.totalKills >= 100 },
+  { id: 'nova',    name: 'Nova',    code: 'NOVA',    color: '#ff6bd6', wing: 26, fins: true, hull: 4, speed: 1, dmg: 1, cool: 1.7, fan: true,
+    desc: 'Schießt immer im Fächer: 3 Kugeln pro Buchstabe. Dafür feuert sie langsamer und hat nur 4 Hüllenpunkte.',
+    need: 'Highscore ab 3000', ok: s => s.hiscore >= 3000 },
+  { id: 'phantom', name: 'Phantom', code: 'PHANTOM', color: '#ffc94a', wing: 24, fins: true, hull: 4, speed: 1.35, dmg: 1, cool: 0.85, save: 0.25, shot: 1.4, ghost: 4,
+    desc: 'Sehr schnell und wendig, mit besonders schnellen Geschossen. Jeder 4. Schuss ist ein Phantomschuss, der durch alle Gegner in seiner Bahn fliegt. Im Lernmodus kostet außerdem jeder 4. Schuss im Schnitt keine Munition. Dafür nur 4 Hüllenpunkte.',
+    need: '30 Wörter sicher', ok: s => s.secure >= 30 },
 ];
 
 const START_AMMO = 'HOLAAMIGOVAMOS';
 const AMMO_PER_LETTER = 2;
-const HULL = 5;
+const maxHull = () => currentSkin().hull + upLv('hull');
 const AMMO_PACK = 10;
 const BOX_DAYS = [0, 0, 1, 3, 7, 14];
 const SECURE_BOX = 3;
-const BOSS_TIME = 25;
 const W = 600, H = 800;
 
 const $ = id => document.getElementById(id);
@@ -216,6 +339,21 @@ const pointer = { active: false, x: W / 2 };
 
 let musicOn = store.get('music', true);
 let actx = null, master = null, musicBus = null, noiseBuf = null;
+
+// iPad/iOS: Audio darf erst nach einer Berührung starten. Beim ersten Tippen/Klick/Tastendruck
+// wird der AudioContext erzeugt bzw. fortgesetzt und ein stiller Ton gespielt.
+function unlockAudio() {
+  try {
+    const a = audio();
+    if (a.state !== 'running') a.resume();
+    const src = a.createBufferSource();
+    src.buffer = a.createBuffer(1, 1, 22050); src.connect(a.destination); src.start(0);
+    if (a.state === 'running') for (const ev of ['pointerdown', 'touchend', 'keydown']) window.removeEventListener(ev, unlockAudio);
+  } catch (e) {}
+}
+for (const ev of ['pointerdown', 'touchend', 'keydown']) window.addEventListener(ev, unlockAudio, { passive: true });
+
+const isTouch = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0;
 
 function audio() {
   if (!actx) {
@@ -285,6 +423,12 @@ const SFX = {
   bossIn() { tone(70, 1.5, { type: 'sawtooth', vol: 0.18, slide: 45 }); noise(1.3, { vol: 0.2, freq: 400, slide: 120 }); },
   bossShot() { tone(900, 0.05, { vol: 0.05, slide: 500 }); },
   bossFail() { tone(160, 0.7, { type: 'sawtooth', vol: 0.1, slide: 70 }); },
+  dot() { tone(rnd(620, 700), 0.06, { type: 'square', vol: 0.045, slide: 300 }); noise(0.03, { vol: 0.05, freq: 4000, filter: 'highpass' }); },
+  overheat() { noise(0.6, { vol: 0.25, freq: 6000, slide: 800, filter: 'highpass' }); tone(240, 0.5, { type: 'sawtooth', vol: 0.08, slide: 90 }); },
+  cooled() { tone(500, 0.08, { type: 'triangle', vol: 0.1 }); tone(750, 0.12, { type: 'triangle', vol: 0.1, delay: 0.07 }); },
+  clank() { tone(rnd(1900, 2300), 0.04, { type: 'square', vol: 0.03 }); },
+  enemyShot() { tone(300, 0.12, { type: 'square', vol: 0.05, slide: 150 }); },
+  coreBreak() { noise(0.7, { vol: 0.45, freq: 2500, slide: 120 }); tone(180, 0.5, { type: 'sawtooth', vol: 0.12, slide: 50 }); },
   gameOver() { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.32, { vol: 0.08, delay: i * 0.22 })); },
 };
 
@@ -398,7 +542,7 @@ function leitnerUpdate(item, grade) {
 const secureIn = (pool, dir) => pool.filter(it => (leitner[lkey(dir, it)] || { box: 0 }).box >= SECURE_BOX).length;
 const secureTotal = () => Object.values(leitner).filter(r => r.box >= SECURE_BOX).length;
 const stats = () => ({ totalKills: store.get('totalKills', 0), hiscore: store.get('hiscore', 0), secure: secureTotal() });
-const unlockedSkins = () => { const s = stats(); return SKINS.filter(k => !k.ok || k.ok(s)).map(k => k.id); };
+const unlockedSkins = () => { const s = stats(), codes = store.get('codeSkins', []); return SKINS.filter(k => !k.ok || k.ok(s) || codes.includes(k.id)).map(k => k.id); };
 const currentSkin = () => SKINS.find(s => s.id === (G ? G.skin : store.get('skin', 'falke'))) || SKINS[0];
 
 // ---------- Menü ----------
@@ -406,9 +550,23 @@ function menuSelection() {
   const topics = [...document.querySelectorAll('#topics input:checked')].map(i => i.value);
   const useCustom = $('useCustom').checked;
   const dir = document.querySelector('input[name=dir]:checked').value;
+  const mode = $('mode').value;
   let pool = topics.flatMap(k => LISTS[k].words);
   if (useCustom) pool = pool.concat(parseCustom($('customList').value));
-  return { topics, useCustom, dir, pool };
+  return { topics, useCustom, dir, pool, mode };
+}
+
+const hiscoreKey = arcade => arcade ? 'hiscoreArcade' : 'hiscore';
+
+// Arcade-Modus: keine Vokabeln, Dauerfeuer mit Überhitzung, Bosse mit Schwachpunkten.
+function applyMode() {
+  const arcade = $('mode').value === 'arcade';
+  $('learnOpts').classList.toggle('hidden', arcade);
+  $('progress').classList.toggle('hidden', arcade);
+  $('menuIntro').innerHTML = arcade
+    ? 'Raumgleiter greifen an. Deine Kanone feuert ohne Ende, aber <b>Dauerfeuer überhitzt sie</b>: Ist die Hitze voll, musst du warten, bis sie abgekühlt ist. Bosse treffen nur an ihren <b>leuchtenden Schwachpunkten</b>. Jeder durchgekommene Gleiter beschädigt deine Hülle.'
+    : 'Raumgleiter greifen an. Deine Munition sind Buchstaben: Mit <b>R</b> lädst du nach, indem du Vokabeln richtig eintippst. Jeder durchgekommene Gleiter beschädigt deine Hülle. Ist sie kaputt, ist das Spiel vorbei.';
+  $('hiscore').textContent = (arcade ? 'Arcade-Highscore: ' : 'Highscore: ') + store.get(hiscoreKey(arcade), 0);
 }
 
 function updateMenuProgress() {
@@ -430,15 +588,17 @@ function buildMenu() {
   if (!unlocked.includes(skin)) skin = 'falke';
   $('ships').innerHTML = SKINS.map(s => unlocked.includes(s.id)
     ? `<button type="button" data-skin="${s.id}" class="${s.id === skin ? 'sel' : ''}" style="color:${s.color}">${s.name}</button>`
-    : `<button type="button" disabled title="${s.need}">🔒 ${s.name} · ${s.need}</button>`).join('');
-  $('hiscore').textContent = 'Highscore: ' + store.get('hiscore', 0);
+    : `<button type="button" class="locked" data-locked="${s.id}" title="${s.need}">🔒 ${s.name} · ${s.need}</button>`).join('');
+  showShipDesc(skin);
+  $('mode').value = store.get('mode', 'arcade') === 'learn' ? 'learn' : 'arcade';
+  applyMode();
   $('muteBtn').textContent = muted ? 'Ton: aus' : 'Ton: an';
   $('musicBtn').textContent = musicOn ? 'Musik: an' : 'Musik: aus';
   updateMenuProgress();
 }
 
 function showPanel(id) {
-  for (const p of ['menu', 'quiz', 'over', 'pause', 'bossPanel']) $(p).classList.toggle('hidden', p !== id);
+  for (const p of ['menu', 'quiz', 'over', 'pause', 'bossPanel', 'cheat', 'dev', 'upgrade']) $(p).classList.toggle('hidden', p !== id);
 }
 
 function banner(html, ms) {
@@ -455,20 +615,24 @@ function renderAccents(containerId, inputId) {
 function startGame() {
   const sel = menuSelection();
   store.set('topics', sel.topics); store.set('useCustom', sel.useCustom); store.set('custom', $('customList').value); store.set('dir', sel.dir);
-  if (!sel.pool.length) { $('menuErr').textContent = 'Wähle mindestens ein Thema oder trage eigene Vokabeln ein.'; return; }
+  store.set('mode', sel.mode);
+  const arcade = sel.mode === 'arcade';
+  if (arcade) sel.pool = [];
+  else if (!sel.pool.length) { $('menuErr').textContent = 'Wähle mindestens ein Thema oder trage eigene Vokabeln ein.'; return; }
   $('menuErr').textContent = '';
   const skinBtn = document.querySelector('#ships button.sel');
   G = {
-    dir: sel.dir, skin: skinBtn ? skinBtn.dataset.skin : 'falke', test: false,
-    round: 1, pool: sel.pool, queue: orderPool(sel.pool, sel.dir), ammo: toAmmo(START_AMMO.split('')), hull: HULL,
-    killsSaved: 0, hiscoreAtStart: store.get('hiscore', 0),
+    dir: sel.dir, skin: skinBtn ? skinBtn.dataset.skin : 'falke', test: false, arcade, heat: 0, overheat: false, shots: [], up: {}, pick: null, reroll: null, coins: 0, rerolls: 0,
+    round: 1, pool: sel.pool, queue: orderPool(sel.pool, sel.dir), ammo: arcade ? [] : toAmmo(START_AMMO.split('')), hull: 0,
+    killsSaved: 0, hiscoreAtStart: store.get(hiscoreKey(arcade), 0),
     score: 0, kills: 0, asked: 0, right: 0, exactStreak: 0, missed: new Map(), roundItems: [],
-    item: null, qMode: 'answer', secureAtStart: secureIn(sel.pool, sel.dir), unlockedAtStart: unlockedSkins(),
+    item: null, qMode: 'answer', secureAtStart: secureIn(sel.pool, sel.dir), unlockedAtStart: unlockedSkins(), knownSkins: unlockedSkins(),
     player: { x: W / 2, y: H - 50 }, bullets: [], enemies: [], parts: [], texts: [],
     spawnLeft: 0, spawnT: 0, cooldown: 0, hintT: 0, combo: 0, shake: 0, flash: 0, whiteFlash: 0,
     power: {}, shield: 0, drops: [],
     escapes: 0, waveTotal: 0, badWaves: 0, breather: false, bonus: false, bonusKills: 0, rush: false, boss: null, bossUsed: new Set(),
   };
+  G.hull = maxHull();
   G.answerIndex = new Map();
   for (const it of sel.pool) for (const a of alternatives(answerOf(it))) G.answerIndex.set(norm(a), it);
   showPanel(null);
@@ -574,6 +738,8 @@ function submitAnswer(skip = false) {
     G.exactStreak++;
     stars = G.exactStreak % 3 === 0 ? 9 : 3;
   } else G.exactStreak = 0;
+  const bonusAmmo = Math.round(ammo.length * 0.25 * upLv('ammo'));   // Upgrade Munitionsgürtel
+  for (let i = 0; i < bonusAmmo; i++) ammo.push(ammo[i % ammo.length]);
   ammo = ammo.concat(Array(stars).fill('★'));
   const msg = {
     exact: '¡Perfecto! Fehlerfrei',
@@ -632,11 +798,15 @@ async function launchWave() {
   G.bonus = G.round % 4 === 0;
   let text;
   if (G.bonus) {
-    text = '★ Bonuswelle ★<small>Keine Verluste · jeder Treffer +2 Schuss · alle erwischt = Perfect-Bonus</small>';
+    text = G.arcade
+      ? '★ Bonuswelle ★<small>Keine Verluste · alle erwischt = Perfect-Bonus</small>'
+      : '★ Bonuswelle ★<small>Keine Verluste · jeder Treffer +2 Schuss · alle erwischt = Perfect-Bonus</small>';
   } else {
     const extra = [];
     if (G.round === 3) extra.push('Neu: Panzergleiter, brauchen 2 Treffer');
     if (G.round === 5) extra.push('Neu: Zickzack-Gleiter, schnell und wendig');
+    if (G.round === 7) extra.push('Neu: Elite-Gleiter (gold), doppelt so zäh · alle Gegner werden jetzt jede Welle zäher');
+    if (G.round === 9) extra.push('Neu: Schützen-Gleiter schießen zurück, weich aus!');
     if (G.breather) extra.push('Verschnaufpause: diese Welle ist kleiner');
     text = `⚠ Angriff! Welle ${G.round}` + (extra.length ? `<small>${extra.join(' · ')}</small>` : '');
   }
@@ -649,8 +819,9 @@ const extraDelay = text => text.includes('<small>') ? 2300 : 1600;
 function startWave() {
   const cfg = waveConfig(G.round);
   G.cfg = cfg;
-  G.bullets = []; G.enemies = [];
+  G.bullets = []; G.enemies = []; G.shots = [];
   G.escapes = 0; G.bonusKills = 0; G.rush = false;
+  if (upLv('shield')) G.shield = Math.max(G.shield, upLv('shield'));   // Upgrade Schildgenerator
   if (G.bonus) {
     G.spawnLeft = 20; G.train = 0;
   } else {
@@ -673,7 +844,23 @@ function spawnEnemy() {
     tank:   { hp: 2, r: 24, color: '#b07cff', vy: c.speed * 0.7, amp: 15 },
   }[type];
   const baseX = 60 + Math.random() * (W - 120);
-  G.enemies.push({ ...def, type, maxHp: def.hp, baseX, x: baseX, y: -70, t: Math.random() * 6, vy: def.vy + Math.random() * 15, flashT: 0 });
+  const elite = Math.random() < eliteChance(G.round), gun = Math.random() < gunChance(G.round);
+  const hp = def.hp * hpMult(G.round) * (elite ? 2 : 1);
+  G.enemies.push({ ...def, type, hp, maxHp: hp, elite, gun, gunT: 1.5 + Math.random() * 2, baseX, x: baseX, y: -70,
+    t: Math.random() * 6, vy: (def.vy + Math.random() * 15) * (elite ? 1.15 : 1), flashT: 0 });
+}
+
+// Schützen-Gleiter feuern ab und zu gezielt auf das Schiff.
+function updateGunners(dt) {
+  for (const e of G.enemies) {
+    if (!e.gun || e.hp <= 0 || e.y < 60 || e.y > H - 260) continue;
+    e.gunT -= dt;
+    if (e.gunT > 0) continue;
+    e.gunT = Math.max(1.6, 3.2 - (G.round - 9) * 0.1) + Math.random();
+    const a = Math.atan2(G.player.y - e.y, G.player.x - e.x), v = 200 + G.round * 4;
+    G.shots.push({ x: e.x, y: e.y + 12, vx: Math.cos(a) * v, vy: Math.sin(a) * v });
+    SFX.enemyShot();
+  }
 }
 
 // Galaga-artige Bonuswelle: Fünferzüge fliegen quer durchs Bild.
@@ -706,9 +893,10 @@ const POWERUPS = {
 };
 const powerActive = type => G.power[type] > 0;
 
-function maybeDrop(e) {
-  if (Math.random() > (e.type === 'tank' ? 0.2 : 0.08)) return;
-  const types = Object.keys(POWERUPS).filter(t => !(t === 'ammo' && G.test) && !(t === 'repair' && G.hull >= HULL));
+function maybeDrop(e, chance = e.type === 'tank' ? 0.2 : 0.08) {
+  chance *= (1 + 0.4 * upLv('luck')) * (e.elite ? 2 : 1);   // Upgrade Schatzsucher, Elite-Gleiter
+  if (Math.random() > chance) return;
+  const types = Object.keys(POWERUPS).filter(t => !(t === 'ammo' && (G.test || G.arcade)) &&!(t === 'repair' && G.hull >= maxHull()));
   let roll = Math.random() * types.reduce((s, t) => s + POWERUPS[t].weight, 0);
   const type = types.find(t => (roll -= POWERUPS[t].weight) < 0) || 'ammo';
   G.drops.push({ type, x: e.x, y: e.y, t: 0 });
@@ -718,13 +906,13 @@ function collectPowerup(d) {
   const def = POWERUPS[d.type];
   floatText(G.player.x, G.player.y - 40, def.name, def.color);
   SFX.pickup();
-  if (def.dur) G.power[d.type] = def.dur;
+  if (def.dur) G.power[d.type] = def.dur * (1 + 0.35 * upLv('dur'));   // Upgrade Verstärker
   else if (d.type === 'shield') G.shield = 3;
   else if (d.type === 'ammo') {
     const word = G.roundItems.length ? lettersOf(answerOf(G.roundItems[Math.random() * G.roundItems.length | 0])) : lettersOf('MUNICION');
     for (let i = 0; i < AMMO_PACK; i++) G.ammo.push(word[i % word.length]);
   } else if (d.type === 'repair') {
-    G.hull = Math.min(HULL, G.hull + 1);
+    G.hull = Math.min(maxHull(), G.hull + 1);
   } else if (d.type === 'bomb') {
     for (const e of G.enemies) if (e.hp > 0 && e.y > -20) { e.hp = 0; killEnemy(e, true); }
     G.shake = 0.7; G.whiteFlash = 0.5;
@@ -738,28 +926,80 @@ function updatePowerups(dt) {
   }
   for (const d of G.drops) {
     d.t += dt; d.y += 110 * dt;
+    if (upLv('magnet')) {   // Upgrade Magnet: Drops fliegen zum Schiff
+      const dx = G.player.x - d.x, dy = G.player.y - d.y, dist = Math.hypot(dx, dy) || 1;
+      d.x += dx / dist * 320 * dt; d.y += dy / dist * 320 * dt;
+    }
     if (Math.hypot(d.x - G.player.x, d.y - G.player.y) < 32) { d.taken = true; collectPowerup(d); }
   }
   G.drops = G.drops.filter(d => !d.taken && d.y < H + 20);
 }
 
+// ---------- Arcade: Überhitzung ----------
+// Jeder Schuss heizt die Kanone auf, sie kühlt ständig ab. Bei 100 % ist sie überhitzt
+// und feuert erst wieder, wenn sie ganz abgekühlt ist.
+const HEAT_PER_SHOT = 9, HEAT_COOL = 30, HEAT_COOL_OVER = 42;
+
+function updateHeat(dt) {
+  G.heat = Math.max(0, G.heat - (G.overheat ? HEAT_COOL_OVER : HEAT_COOL) * dt);
+  if (G.overheat && G.heat <= 0) { G.overheat = false; SFX.cooled(); }
+}
+
+function addHeat() {
+  // Schnellfeuer heizt pro Schuss weniger.
+  G.heat += HEAT_PER_SHOT * (powerActive('rapid') ? 0.6 : 1) * 0.85 ** upLv('cool');
+  if (G.heat >= 100) {
+    G.heat = 100; G.overheat = true;
+    floatText(G.player.x, G.player.y - 50, 'Überhitzt!', '#ff5d73');
+    SFX.overheat();
+  }
+}
+
+// Bewegen, Power-ups und Feuern: gleich in Wellen und (Arcade-)Bosskämpfen.
+function playerStep(dt) {
+  movePlayer(dt);
+  updatePowerups(dt);
+  if (G.arcade) updateHeat(dt);
+  G.cooldown -= dt;
+  const canFire = G.test || (G.arcade ? !G.overheat : G.ammo.length);
+  if ((keys.Space || pointer.active) && G.cooldown <= 0 && canFire) fire();
+}
+
 function fire() {
-  const p = G.player;
-  const ch = G.test ? 'LOSPOLLOSHERMANOS'[Math.random() * 17 | 0] : G.ammo.shift();
-  const dmg = ch === '★' ? 2 : 1;
+  const p = G.player, ship = currentSkin();
+  let ch = null;
+  if (!G.arcade) {
+    ch = G.test ? 'LOSPOLLOSHERMANOS'[Math.random() * 17 | 0] : G.ammo.shift();
+    // Phantom: manchmal kostet ein Schuss keine Munition.
+    if (!G.test && ship.save && Math.random() < ship.save) G.ammo.unshift(ch);
+  }
+  const dmg = ((ch === '★' ? 1 : 0) + ship.dmg) * (1 + 0.35 * upLv('dmg'));   // Upgrade Schwere Projektile
   const xs = powerActive('double') ? [-10, 10] : [0];
-  const vxs = powerActive('spread') ? [-220, 0, 220] : [0];
+  const vxs = ship.fan
+    ? (powerActive('spread') ? [-220, -110, 0, 110, 220] : [-120, 0, 120])
+    : (powerActive('spread') ? [-220, 0, 220] : [0]);
+  // Phantom: jeder n-te Schuss fliegt durch alle Gegner in seiner Bahn.
+  G.shotCount = (G.shotCount || 0) + 1;
+  const ghost = ship.ghost && G.shotCount % ship.ghost === 0;
   let main = true;
   for (const vx of vxs) for (const dx of xs) {
-    G.bullets.push({ x: p.x + dx, y: p.y - 22, vx, ch, dmg, main });
+    G.bullets.push({ x: p.x + dx, y: p.y - 22, vx, ch, dot: G.arcade, dmg, main, ghost,
+      pierce: ghost ? Infinity : upLv('pierce'), spd: 750 * (ship.shot || 1) });
     main = false;
   }
-  G.cooldown = powerActive('rapid') ? 0.085 : 0.17;
-  SFX.shoot(ch === '★');
+  G.cooldown = (powerActive('rapid') ? 0.085 : 0.17) * ship.cool * 0.88 ** upLv('rate');   // Upgrade Schnellladen
+  if (G.arcade) { addHeat(); SFX.dot(); }
+  else SFX.shoot(ch === '★');
+}
+
+// Upgrade Glückstreffer: Chance auf doppelten Schaden.
+function hitDamage(b) {
+  if (Math.random() < 0.12 * upLv('crit')) { b.crit = true; return b.dmg * 2; }
+  return b.dmg;
 }
 
 function movePlayer(dt) {
-  const p = G.player, v = powerActive('speed') ? 700 : 430;
+  const p = G.player, v = (powerActive('speed') ? 700 : 430) * currentSkin().speed * 1.12 ** upLv('speed');
   let dx = 0;
   if (keys.ArrowLeft || keys.KeyA) dx -= 1;
   if (keys.ArrowRight || keys.KeyD) dx += 1;
@@ -769,32 +1009,44 @@ function movePlayer(dt) {
 }
 
 function updateBullets(dt) {
+  const homing = upLv('home') && phase === 'shoot';
   for (const b of G.bullets) {
-    b.y -= 750 * dt;
-    if (b.tx !== undefined) b.x += (b.tx - b.x) * Math.min(1, dt * 6);
-    else if (b.vx) b.x += b.vx * dt;
+    b.y -= (b.spd || 750) * dt;
+    if (b.tx !== undefined) { b.x += (b.tx - b.x) * Math.min(1, dt * 6); continue; }
+    if (homing) {   // Upgrade Zielsuchkopf: zum nächsten Gegner oberhalb lenken
+      let best = null, bd = 260;
+      for (const e of G.enemies) {
+        if (e.hp <= 0 || e.y > b.y || (b.done && b.done.has(e))) continue;
+        const d = Math.hypot(e.x - b.x, e.y - b.y);
+        if (d < bd) { bd = d; best = e; }
+      }
+      if (best) {
+        const want = Math.max(-320, Math.min(320, (best.x - b.x) * 3));
+        b.vx = (b.vx || 0) + (want - (b.vx || 0)) * Math.min(1, dt * 5);
+      }
+    }
+    if (b.vx) b.x += b.vx * dt;
   }
 }
 
 function killEnemy(e, byBomb = false) {
   G.kills++;
-  const typeMult = e.type === 'tank' ? 2 : e.type === 'fast' ? 1.5 : 1;
+  const typeMult = (e.type === 'tank' ? 2 : e.type === 'fast' ? 1.5 : 1) * (e.elite ? 2 : 1) * (e.gun ? 1.5 : 1);
   const pts = Math.round(10 * G.round * typeMult * comboMult());
   G.score += pts;
   explode(e.x, e.y, e.color);
+  if (e.elite) explode(e.x, e.y, '#ffd84a', 14);
+  addCoins(1 + (e.type === 'tank' ? 1 : 0) + (e.elite ? 3 : 0) + (e.gun ? 1 : 0), e.x, e.y);
   const word = G.roundItems.length ? alternatives(answerOf(G.roundItems[Math.random() * G.roundItems.length | 0]))[0] : null;
   floatText(e.x, e.y, '+' + pts, '#5bf08a', word);
   if (!byBomb) { SFX.explode(e.type === 'tank'); maybeDrop(e); }
   if (e.type === 'tank') G.shake = 0.25;
-  if (e.type === 'bonus') { G.bonusKills++; const l = lettersOf(word || 'OLE'); G.ammo.push(l[0], l[l.length - 1]); }
+  if (e.type === 'bonus') G.bonusKills++;
+  if (e.type === 'bonus' && !G.arcade) { const l = lettersOf(word || 'OLE'); G.ammo.push(l[0], l[l.length - 1]); }
 }
 
 function updateShoot(dt) {
-  movePlayer(dt);
-  updatePowerups(dt);
-
-  G.cooldown -= dt;
-  if ((keys.Space || pointer.active) && G.cooldown <= 0 && (G.test || G.ammo.length)) fire();
+  playerStep(dt);
 
   G.spawnT -= dt;
   if (G.spawnLeft > 0 && G.spawnT <= 0) {
@@ -816,16 +1068,21 @@ function updateShoot(dt) {
     e.y += e.vy * dt;
     e.x = Math.max(e.r, Math.min(W - e.r, e.baseX + Math.sin(e.t * (e.type === 'fast' ? 2.6 : 1.4)) * e.amp));
   }
+  updateGunners(dt);
+  updateEnemyShots(dt);
 
   for (const b of G.bullets) {
     for (const e of G.enemies) {
-      if (e.hp > 0 && !b.hit && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 8) {
-        b.hit = true; e.hp -= b.dmg; e.flashT = 0.08; G.combo++;
+      if (e.hp > 0 && !b.hit && !(b.done && b.done.has(e)) && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 8) {
+        e.hp -= hitDamage(b); e.flashT = 0.08; G.combo++;
+        // Upgrade Durchschlag: Schuss fliegt weiter, trifft denselben Gegner aber nicht nochmal.
+        if (b.pierce > 0) { b.pierce--; (b.done = b.done || new Set()).add(e); } else b.hit = true;
+        if (b.crit) { floatText(b.x, b.y - 10, 'Krit!', '#ffd84a'); b.crit = false; }
         if (e.hp <= 0) killEnemy(e);
         else { explode(b.x, b.y, '#fff', 5); SFX.hit(); }
       }
     }
-    if (!b.hit && (b.y < -20 || b.x < -20 || b.x > W + 20)) { b.gone = true; if (b.main) G.combo = 0; }
+    if (!b.hit && (b.y < -20 || b.x < -20 || b.x > W + 20)) { b.gone = true; if (b.main && !b.done) G.combo = 0; }
   }
   for (const e of G.enemies) {
     if (e.hp <= 0) continue;
@@ -840,7 +1097,7 @@ function updateShoot(dt) {
         continue;
       }
       G.escapes++;
-      if (!G.test) G.hull--;
+      if (!G.test && !G.god) G.hull--;
       floatText(e.x, H - 90, G.test ? 'durch!' : 'Hülle getroffen!', '#ff5d73');
       G.shake = 0.35; G.flash = 0.5;
       SFX.escape();
@@ -852,19 +1109,19 @@ function updateShoot(dt) {
 
   G.hintT -= dt;
   if (!G.enemies.length && !G.spawnLeft) return waveCleared();
-  if (!G.test && !G.ammo.length && !G.bullets.length && (keys.Space || pointer.active)) return openReload(true);
+  if (!G.test && !G.arcade && !G.ammo.length && !G.bullets.length && (keys.Space || pointer.active)) return openReload(true);
 }
 
 async function waveCleared() {
   phase = 'transition';
   saveStats();
-  G.drops = [];
+  G.drops = []; G.shots = [];
   let text;
   if (G.bonus) {
     const perfect = G.bonusKills === G.waveTotal;
     const prize = toAmmo(lettersOf('PERFECTO'));
-    if (perfect) { G.score += 500 * G.round; G.ammo.push(...prize); }
-    text = perfect ? `PERFECT! ${G.bonusKills}/${G.waveTotal}<small>+${500 * G.round} Punkte · +${prize.length} Schuss</small>`
+    if (perfect) { G.score += 500 * G.round; addCoins(10); if (!G.arcade) G.ammo.push(...prize); }
+    text = perfect ? `PERFECT! ${G.bonusKills}/${G.waveTotal}<small>+${500 * G.round} Punkte · +10 🪙${G.arcade ? '' : ` · +${prize.length} Schuss`}</small>`
                    : `Bonuswelle: ${G.bonusKills}/${G.waveTotal} erwischt`;
   } else {
     G.score += 50 * G.round;
@@ -874,17 +1131,184 @@ async function waveCleared() {
   }
   SFX.fanfare();
   await banner(text, 1700);
+  const fresh = checkUnlocks();
+  if (fresh.length) {
+    SFX.fanfare();
+    await banner(`Neues Raumschiff: ${fresh.map(s => s.name).join(', ')}!` +
+      `<small>Im Menü auswählbar · Code: ${fresh.map(s => s.code).join(', ')}</small>`, 3500);
+  }
   if (!G.bonus && !G.test && G.round >= 2) startBoss();
   else nextRound();
 }
 
-function nextRound() {
+async function nextRound(skipOffer = false) {
+  // Nach jeder 2. Welle (inkl. Boss bzw. Bonuswelle) gibt es eine Upgrade-Wahl.
+  if (!skipOffer && !G.test && G.round % UPGRADE_EVERY === 0) await offerUpgrades();
+  if (!G || phase === 'over' || phase === 'menu') return;
   G.round++;
   launchWave();
 }
 
+// ---------- Roguelike-Upgrades ----------
+// Gelten nur für den aktuellen Run. max = höchste Stufe, w = Gewicht beim Ziehen
+// (common 6, rare 3, epic 1). mode: nur im Arcade- bzw. Lernmodus anbieten.
+const UPGRADE_EVERY = 2;
+const RARITY = { common: { w: 6, name: 'Gewöhnlich' }, rare: { w: 3, name: 'Selten' }, epic: { w: 1, name: 'Episch' } };
+const UPGRADES = [
+  { id: 'dmg',    icon: '💥', name: 'Schwere Projektile', rar: 'rare',   max: 3, desc: '+35 % Schaden pro Schuss' },
+  { id: 'rate',   icon: '⚡', name: 'Schnellladen',       rar: 'common', max: 4, desc: '+12 % Feuerrate' },
+  { id: 'speed',  icon: '🚀', name: 'Triebwerk',          rar: 'common', max: 3, desc: '+12 % Tempo' },
+  { id: 'hull',   icon: '🛡', name: 'Panzerplatten',      rar: 'rare',   max: 3, desc: '+1 maximale Hülle und 1 Hülle repariert' },
+  { id: 'cool',   icon: '❄', name: 'Kühlrippen',         rar: 'common', max: 3, desc: '−15 % Hitze pro Schuss', mode: 'arcade' },
+  { id: 'ammo',   icon: '🎒', name: 'Munitionsgürtel',    rar: 'common', max: 3, desc: '+25 % Munition pro richtiger Vokabel', mode: 'learn' },
+  { id: 'pierce', icon: '🗡', name: 'Durchschlag',        rar: 'epic',   max: 2, desc: 'Schüsse fliegen durch 1 weiteren Gegner' },
+  { id: 'crit',   icon: '✨', name: 'Glückstreffer',      rar: 'rare',   max: 3, desc: '+12 % Chance auf doppelten Schaden' },
+  { id: 'shield', icon: '🔵', name: 'Schildgenerator',    rar: 'rare',   max: 2, desc: 'Jede Welle startet mit +1 Schild' },
+  { id: 'luck',   icon: '🎁', name: 'Schatzsucher',       rar: 'common', max: 2, desc: '+40 % Power-up-Drops' },
+  { id: 'dur',    icon: '⏳', name: 'Verstärker',         rar: 'common', max: 2, desc: 'Power-ups halten 35 % länger' },
+  { id: 'magnet', icon: '🧲', name: 'Magnet',             rar: 'common', max: 1, desc: 'Power-ups fliegen von selbst zu dir' },
+  { id: 'home',   icon: '🎯', name: 'Zielsuchkopf',       rar: 'epic',   max: 1, desc: 'Schüsse lenken zum nächsten Gegner' },
+];
+const upLv = id => (G && G.up && G.up[id]) || 0;
+const upDef = id => UPGRADES.find(u => u.id === id);
+
+function upgradePool() {
+  return UPGRADES.filter(u => upLv(u.id) < u.max && (!u.mode || u.mode === (G.arcade ? 'arcade' : 'learn')));
+}
+
+// 3 verschiedene Upgrades ziehen, gewichtet nach Seltenheit.
+function rollUpgrades(exclude = []) {
+  const pool = upgradePool().filter(u => !exclude.includes(u.id)), picks = [];
+  while (picks.length < 3 && pool.length) {
+    let roll = Math.random() * pool.reduce((s, u) => s + RARITY[u.rar].w, 0);
+    const i = pool.findIndex(u => (roll -= RARITY[u.rar].w) < 0);
+    picks.push(pool.splice(i < 0 ? 0 : i, 1)[0]);
+  }
+  return picks;
+}
+
+function ownedText() {
+  const list = UPGRADES.filter(u => upLv(u.id)).map(u => `${u.icon} ${u.name}${u.max > 1 ? ' ' + upLv(u.id) + '/' + u.max : ''}`);
+  return list.length ? 'Deine Upgrades: ' + list.join(' · ') : '';
+}
+
+function cardHtml(u, i) {
+  const lv = upLv(u.id);
+  return `<span class="key">${i + 1}</span><span class="ic">${u.icon}</span><span class="nm">${u.name}</span>` +
+    `<span class="ds">${u.desc}</span><span class="lv">${RARITY[u.rar].name}${u.max > 1 ? ` · Stufe ${lv + 1}/${u.max}` : ''}</span>`;
+}
+
+// Slotmaschine: die Karten rotieren kurz und bleiben nacheinander stehen.
+// Pro Auswahl darf einmal neu gewürfelt werden, das kostet Münzen (jeder Reroll im Run wird teurer).
+function offerUpgrades() {
+  let picks = rollUpgrades();
+  if (!picks.length) return Promise.resolve();
+  phase = 'upgrade';
+  for (const k in keys) keys[k] = false;
+  pointer.active = false;
+  $('upOwned').textContent = ownedText();
+  showPanel('upgrade');
+  let rerolled = false;
+  return new Promise(resolve => {
+    const spin = () => {
+      G.pick = null; G.reroll = null;
+      updateRerollBtn(rerolled, true);
+      $('cards').innerHTML = picks.map(() => '<button type="button" class="card spin" disabled></button>').join('');
+      const cards = [...$('cards').children], all = upgradePool();
+      let spinning = cards.length, t = 0;
+      const tick = () => {
+        t += 70;
+        cards.forEach((c, i) => {
+          if (!c.classList.contains('spin')) return;
+          if (t >= 500 + i * 350) {
+            c.className = 'card landed ' + picks[i].rar; c.innerHTML = cardHtml(picks[i], i);
+            SFX.correct(); spinning--;
+          } else {
+            const u = all[Math.random() * all.length | 0];
+            c.className = 'card spin ' + u.rar; c.innerHTML = cardHtml(u, i);
+          }
+        });
+        if (t % 140 === 0) SFX.click();
+        if (spinning) return setTimeout(tick, 70);
+        cards.forEach(c => c.disabled = false);
+        updateRerollBtn(rerolled, false);
+        G.pick = i => {
+          if (!picks[i]) return;
+          G.pick = G.reroll = null;
+          applyUpgrade(picks[i]);
+          showPanel(null);
+          resolve();
+        };
+        G.reroll = () => {
+          if (rerolled || G.coins < rerollCost()) { SFX.wrong(); return; }
+          G.coins -= rerollCost();
+          G.rerolls++;
+          rerolled = true;
+          // Möglichst andere Upgrades als vorher ziehen.
+          const old = picks.map(u => u.id);
+          const fresh = rollUpgrades(old);
+          picks = fresh.length >= Math.min(3, picks.length) ? fresh : rollUpgrades();
+          SFX.pickup();
+          spin();
+        };
+      };
+      setTimeout(tick, 70);
+    };
+    spin();
+  });
+}
+
+const REROLL_BASE = 25, REROLL_STEP = 15;
+const rerollCost = () => REROLL_BASE + G.rerolls * REROLL_STEP;
+
+function updateRerollBtn(used, spinning) {
+  const btn = $('rerollBtn'), cost = rerollCost();
+  btn.disabled = spinning || used || G.coins < cost;
+  btn.innerHTML = used ? '🎲 Schon neu gewürfelt' : `🎲 Neu würfeln (R) · ${cost} 🪙`;
+  $('upCoins').textContent = `Du hast ${G.coins} 🪙`;
+}
+
+// Münzen: Währung für diesen Run, z. B. für Rerolls bei der Upgrade-Wahl.
+function addCoins(n, x, y) {
+  if (!n || G.test) return;
+  G.coins += n;
+  if (x !== undefined && n >= 3) floatText(x, y + 22, `+${n} 🪙`, '#ffd84a');
+}
+
+function applyUpgrade(u) {
+  G.up[u.id] = upLv(u.id) + 1;
+  if (u.id === 'hull') G.hull = Math.min(maxHull(), G.hull + 2);   // +1 Maximum, +1 Reparatur
+  SFX.pickup();
+  floatText(G.player.x, G.player.y - 50, u.name, '#ffc94a');
+}
+
+// ---------- Gegner werden stärker ----------
+// Lebenspunkte steigen ab Welle 7 um 10 % pro Welle. Elite-Gleiter (gold, doppelte Lebenspunkte,
+// schneller, doppelte Punkte) ab Welle 7, Schützen (schießen zurück) ab Welle 9.
+const hpMult = r => 1 + Math.max(0, r - 6) * 0.1;
+const eliteChance = r => r >= 7 ? Math.min(0.25, 0.05 + (r - 7) * 0.025) : 0;
+const gunChance = r => r >= 9 ? Math.min(0.3, 0.08 + (r - 9) * 0.03) : 0;
+
 // ---------- Boss ----------
-function startBoss() {
+// Der Boss sinkt wie ein normaler Gegner nach unten. Jede richtig übersetzte Vokabel
+// ist ein Treffer; ab Welle 5 braucht er zwei. Erreicht er die rote Linie, bricht er durch.
+const bossWords = () => G.round >= 5 ? 2 : 1;
+
+// Varianten: Koloss = langsamer, +1 Wort, mehr Schaden. Jäger = schneller, −1 Wort, weniger Schaden.
+// slow: Faktor auf die Sinkdauer (größer = langsamer), words: Wörter relativ zum normalen Boss.
+const BOSS_TYPES = {
+  normal: { name: 'BOSS',   color: '#ff3355', scale: 3,   words: 0,  slow: 1,    dmg: 2, sway: 0.8 },
+  heavy:  { name: 'KOLOSS', color: '#b07cff', scale: 3.8, words: 1,  slow: 1.15, dmg: 3, sway: 0.5 },
+  fast:   { name: 'JÄGER',  color: '#ffb020', scale: 2.2, words: -1, slow: 0.6,  dmg: 1, sway: 1.6 },
+};
+
+function pickBossType() {
+  if (G.round <= 2) return 'normal';   // erster Boss immer normal
+  const options = Object.keys(BOSS_TYPES).filter(k => k !== G.lastBossType);
+  return options[Math.random() * options.length | 0];
+}
+
+function bossItem() {
   let items = G.roundItems.filter(it => !G.bossUsed.has(it));
   if (!items.length) {
     if (!G.queue.length) G.queue = orderPool(G.pool, G.dir);
@@ -894,16 +1318,39 @@ function startBoss() {
     ? items.slice().sort((a, b) => answerOf(b).length - answerOf(a).length)[0]
     : items[Math.random() * items.length | 0];
   G.bossUsed.add(item);
-  G.boss = { item, x: W / 2, y: -90, t: 0, time: BOSS_TIME, state: 'enter', hp: 1, flashT: 0, shots: [] };
+  return item;
+}
+
+function startBoss(forced) {
+  if (G.arcade) return startArcadeBoss(forced);
+  const kind = forced || pickBossType(), def = BOSS_TYPES[kind];
+  G.lastBossType = kind;
+  const hp = Math.max(1, bossWords() + def.words);
+  // Sinkdauer bis zur Linie: 8 s + 10 s pro Wort (1 Wort ≈ 18 s, 2 ≈ 28 s), je nach Variante
+  // langsamer/schneller und ab Welle 6 insgesamt etwas schneller.
+  const travel = (8 + 10 * hp) * def.slow * Math.max(0.75, 1 - Math.max(0, G.round - 5) * 0.03);
+  G.boss = { kind, ...def, item: bossItem(), x: W / 2, y: -90, t: 0, state: 'enter', hp, maxHp: hp, travel, lineY: H - 270, vy: 0, flashT: 0, shots: [], exact: true };
+  $('bTitle').textContent = `${def.name} · ${hp} ${hp === 1 ? 'Wort' : 'Wörter'} · −${def.dmg} Hülle bei Durchbruch`;
   G.bullets = []; G.enemies = [];
   phase = 'boss';
   SFX.bossIn();
 }
 
 function showBossPanel() {
+  const B = G.boss;
   showPanel('bossPanel');
   renderAccents('bAccents', 'bInput');
-  $('bPrompt').textContent = promptOf(G.boss.item);
+  const wr = $('wrap').getBoundingClientRect(), pr = $('bossPanel').getBoundingClientRect();
+  if (wr.height) B.lineY = Math.max(380, Math.min(H - 120, (pr.top - wr.top) * H / wr.height - 50));
+  B.vy = (B.lineY - B.y) / B.travel;
+  nextBossWord();
+}
+
+function nextBossWord() {
+  const B = G.boss;
+  B.state = 'wait';
+  $('bPrompt').textContent = promptOf(B.item);
+  $('bTime').textContent = `Treffer ${B.maxHp - B.hp}/${B.maxHp}`;
   $('bInput').value = ''; $('bFb').textContent = ''; $('bFb').className = 'fb';
   $('bInput').focus();
 }
@@ -915,25 +1362,52 @@ function bossSubmit() {
   if (!input.trim()) return;
   const res = gradeItem(input, B.item);
   leitnerUpdate(B.item, res.grade);
-  if (res.grade === 'wrong') return bossFail(res, input);
+  G.asked++;
+  const fb = $('bFb');
+  if (res.grade === 'wrong') {
+    B.state = 'missed';
+    B.exact = false;
+    G.missed.set(promptOf(B.item), answerOf(B.item));
+    G.queue.splice(Math.min(G.queue.length, 2 + (Math.random() * 3 | 0)), 0, B.item);
+    fb.className = 'fb bad';
+    fb.innerHTML = wrongText(res, input, B.item) + '<br>Der Boss kommt näher …';
+    SFX.bossFail();
+    shakeInput('bInput');
+    setTimeout(() => {
+      if (G.boss !== B || B.state !== 'missed') return;
+      B.item = bossItem();
+      nextBossWord();
+    }, 2200);
+    return;
+  }
+  G.right++;
+  if (res.grade !== 'exact') B.exact = false;
   B.state = 'firing';
-  B.exact = res.grade === 'exact';
   B.shots = lettersOf(res.alt);
   B.shotT = 0;
-  $('bInput').blur();
-  const fb = $('bFb');
   fb.className = 'fb good';
   fb.innerHTML = res.grade === 'exact' ? '¡Perfecto! Feuer frei!' : `Richtig: <b>${escapeHtml(res.alt)}</b> · Feuer frei!`;
 }
 
-function bossFail(res, input) {
+function bossHit() {
   const B = G.boss;
-  B.state = 'leaving';
-  B.time = 0;
-  G.missed.set(promptOf(B.item), answerOf(B.item));
-  const fb = $('bFb');
-  fb.className = 'fb bad';
-  fb.innerHTML = res ? wrongText(res, input, B.item).replace('Leider falsch. ', 'Der Boss entkommt. ') : `Zeit abgelaufen. Richtig ist: <b>${escapeHtml(answerOf(B.item))}</b>`;
+  B.hp--;
+  B.flashT = 0.2;
+  B.y = Math.max(60, B.y - 45);   // Rückstoß
+  explode(B.x, B.y + 20, '#ffc94a', 24);
+  G.shake = 0.3;
+  SFX.explode(true);
+  if (B.hp <= 0) return bossDefeated();
+  B.item = bossItem();
+  nextBossWord();
+}
+
+function bossBreach() {
+  const B = G.boss;
+  B.state = 'breach';
+  G.shots = [];
+  if (B.item) G.missed.set(promptOf(B.item), answerOf(B.item));
+  showPanel(null);
   $('bInput').blur();
   SFX.bossFail();
 }
@@ -941,16 +1415,48 @@ function bossFail(res, input) {
 function updateBoss(dt) {
   const B = G.boss;
   B.t += dt; B.flashT -= dt;
+  if (G.arcade) {
+    // Im Arcade-Modus fliegt und schießt der Spieler auch während des Bosskampfs.
+    playerStep(dt);
+    updateBullets(dt);
+    G.bullets = G.bullets.filter(b => b.y > -20 && b.x > -20 && b.x < W + 20);
+    updateEnemyShots(dt);
+    for (const c of B.cores) c.flashT -= dt;
+    if (G.hull <= 0) return gameOver();
+  }
   if (B.state === 'enter') {
     B.y += 120 * dt;
-    if (B.y >= 170) { B.y = 170; B.state = 'wait'; showBossPanel(); }
-  } else if (B.state === 'wait') {
-    B.x = W / 2 + Math.sin(B.t * 0.8) * 120;
-    B.time -= dt;
-    $('bBar').style.width = Math.max(0, B.time / BOSS_TIME * 100) + '%';
-    $('bTime').textContent = Math.ceil(Math.max(0, B.time)) + ' s';
-    if (B.time <= 0) bossFail(null, '');
-  } else if (B.state === 'firing') {
+    if (B.y >= 60) {
+      B.y = 60;
+      if (G.arcade) { B.state = 'fight'; B.vy = (B.lineY - B.y) / B.travel; }
+      else showBossPanel();
+    }
+    return;
+  }
+  if (B.state === 'breach') {
+    B.y += 420 * dt;
+    if (B.y > H + 60) {
+      const dmg = G.test || G.god ? 0 : B.dmg;
+      G.hull -= dmg;
+      G.shake = 0.7; G.flash = 0.8;
+      SFX.escape();
+      floatText(W / 2, H - 120, !dmg ? 'durch!' : `Hülle −${dmg}!`, '#ff5d73');
+      G.boss = null;
+      if (G.hull <= 0) return gameOver();
+      phase = 'transition';
+      banner(`${B.kind === 'normal' ? 'Der Boss' : B.kind === 'heavy' ? 'Der Koloss' : 'Der Jäger'} ist durchgebrochen!`, 1600).then(nextRound);
+    }
+    return;
+  }
+  if (B.state === 'dead') return;
+  if (G.arcade) return arcadeBossFight(dt);
+
+  B.x = W / 2 + Math.sin(B.t * B.sway) * 120;
+  B.y += B.vy * dt;
+  $('bBar').style.width = Math.max(0, 100 - (B.y - 60) / (B.lineY - 60) * 100) + '%';
+  if (B.y >= B.lineY) return bossBreach();
+
+  if (B.state === 'firing') {
     B.shotT -= dt;
     if (B.shots.length && B.shotT <= 0) {
       G.bullets.push({ x: G.player.x, y: G.player.y - 22, ch: B.shots.shift(), dmg: 0, tx: B.x });
@@ -959,42 +1465,146 @@ function updateBoss(dt) {
     }
     for (const b of G.bullets) b.tx = B.x;
     updateBullets(dt);
-    for (const b of G.bullets) if (b.y <= B.y + 30) { b.hit = true; B.flashT = 0.06; explode(b.x, b.y, '#fff', 4); }
+    for (const b of G.bullets) if (b.y <= B.y + 10 * B.scale) { b.hit = true; B.flashT = 0.06; explode(b.x, b.y, '#fff', 4); }
     G.bullets = G.bullets.filter(b => !b.hit);
-    if (!B.shots.length && !G.bullets.length) bossDefeated();
-  } else if (B.state === 'leaving') {
-    B.time -= dt;
-    if (B.time < -2.5) { B.y -= 260 * dt; if (B.y < -120) endBoss(); }
+    if (!B.shots.length && !G.bullets.length) bossHit();
   }
+}
+
+// ---------- Arcade-Boss ----------
+// Der Boss nimmt nur an seinen Schwachpunkten (leuchtende Kerne) Schaden, Treffer auf den
+// Rumpf prallen ab. Die Kerne schließen sich regelmäßig kurz (grau gepanzert). Offene Kerne
+// feuern auf das Schiff. Alle Kerne zerstört = Boss besiegt. Erreicht er die Linie, bricht er durch.
+// cores: Positionen in Gleiter-Koordinaten, hp: Faktor auf die Kern-Lebenspunkte,
+// fire: Sekunden zwischen Salven, spread: Winkel der Schüsse pro Salve, cycle/closed: Panzer-Rhythmus.
+const ARCADE_BOSS = {
+  normal: { cores: [[-14, -2], [14, -2]],          hp: 1,   fire: 1.5, spread: [0],               cycle: 4,   closed: 1.2 },
+  heavy:  { cores: [[-14, -2], [0, 13], [14, -2]], hp: 1.2, fire: 2.0, spread: [-0.25, 0, 0.25], cycle: 4.5, closed: 1.5 },
+  fast:   { cores: [[0, 13]],                      hp: 0.9, fire: 0.8, spread: [0],               cycle: 3,   closed: 1 },
+};
+
+function startArcadeBoss(forced) {
+  const kind = forced || pickBossType(), def = BOSS_TYPES[kind], a = ARCADE_BOSS[kind];
+  G.lastBossType = kind;
+  const coreHp = Math.round((6 + G.round * 1.5) * a.hp * (1 + Math.max(0, G.round - 6) * 0.05));
+  const cores = a.cores.map(([ox, oy], i) => ({ ox, oy, hp: coreHp, maxHp: coreHp, phase: i * 1.3, flashT: 0 }));
+  const travel = 40 * def.slow * Math.max(0.7, 1 - Math.max(0, G.round - 5) * 0.03);
+  G.boss = { kind, ...def, ...a, cores, x: W / 2, y: -90, t: 0, state: 'enter', hp: 1, maxHp: 1,
+    travel, lineY: H - 300, vy: 0, flashT: 0, fireT: 2, exact: true };
+  G.bullets = []; G.enemies = []; G.shots = [];
+  phase = 'boss';
+  SFX.bossIn();
+}
+
+// Kernposition inkl. der leichten Schaukelbewegung aus drawGlider.
+function corePos(B, c) {
+  const a = Math.cos(B.t * 1.4) * 0.15, s = B.scale;
+  return { x: B.x + (c.ox * Math.cos(a) - c.oy * Math.sin(a)) * s, y: B.y + (c.ox * Math.sin(a) + c.oy * Math.cos(a)) * s, r: 5 * s };
+}
+const coreOpen = (B, c) => (B.t + c.phase) % B.cycle > B.closed;
+
+// Grobe Trefferform des Gleiters: Dreieck mit Spitze nach unten.
+function insideBody(B, x, y) {
+  const s = B.scale, lx = Math.abs(x - B.x) / s, ly = (y - B.y) / s;
+  return ly > -14 && ly < 16 && lx < 24 * (16 - ly) / 26;
+}
+
+function arcadeBossFight(dt) {
+  const B = G.boss;
+  B.x = W / 2 + Math.sin(B.t * B.sway) * 150;
+  B.y += B.vy * dt;
+  if (B.y >= B.lineY) return bossBreach();
+
+  B.fireT -= dt;
+  if (B.fireT <= 0) {
+    const open = B.cores.filter(c => c.hp > 0 && coreOpen(B, c));
+    if (open.length) {
+      const p = corePos(B, open[Math.random() * open.length | 0]);
+      const aim = Math.atan2(G.player.y - p.y, G.player.x - p.x), v = 220 + G.round * 6;
+      for (const s of B.spread) G.shots.push({ x: p.x, y: p.y, vx: Math.cos(aim + s) * v, vy: Math.sin(aim + s) * v });
+      SFX.enemyShot();
+    }
+    B.fireT = B.fire * Math.max(0.55, 1 - G.round * 0.03);
+  }
+
+  for (const b of G.bullets) {
+    for (const c of B.cores) {
+      if (c.hp <= 0) continue;
+      const p = corePos(B, c);
+      if (Math.hypot(b.x - p.x, b.y - p.y) > p.r + 6) continue;
+      b.hit = true;
+      if (coreOpen(B, c)) {
+        c.hp -= hitDamage(b); c.flashT = 0.08;
+        if (b.crit) floatText(b.x, b.y - 10, 'Krit!', '#ffd84a');
+        G.score += 5 * G.round;
+        explode(b.x, b.y, '#fff', 4); SFX.hit();
+        if (c.hp <= 0) coreDestroyed(B, p);
+      } else { explode(b.x, b.y, '#8f9ac4', 3); SFX.clank(); }
+      break;
+    }
+    if (!b.hit && insideBody(B, b.x, b.y)) { b.hit = true; explode(b.x, b.y, '#ffc94a', 2); SFX.clank(); }
+  }
+  G.bullets = G.bullets.filter(b => !b.hit);
+  if (B.cores.every(c => c.hp <= 0)) return bossDefeated();
+}
+
+function coreDestroyed(B, p) {
+  explode(p.x, p.y, '#ffc94a', 30); explode(p.x, p.y, B.color, 20);
+  G.shake = 0.4; SFX.coreBreak();
+  G.score += 50 * G.round;
+  floatText(p.x, p.y, 'Kern zerstört!', '#ffc94a');
+  B.y = Math.max(60, B.y - 40);   // Rückstoß
+  if (B.cores.some(c => c.hp > 0)) maybeDrop({ type: 'core', x: p.x, y: p.y }, 1);
+}
+
+function updateEnemyShots(dt) {
+  for (const s of G.shots) {
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (Math.hypot(s.x - G.player.x, s.y - G.player.y) < 16) { s.gone = true; playerHit(); }
+    else if (s.y > H + 20 || s.y < -20 || s.x < -20 || s.x > W + 20) s.gone = true;
+  }
+  G.shots = G.shots.filter(s => !s.gone);
+}
+
+function playerHit() {
+  explode(G.player.x, G.player.y - 10, '#c77dff', 12);
+  if (G.shield > 0) { G.shield--; floatText(G.player.x, G.player.y - 50, 'Schild!', '#8fb4ff'); SFX.shield(); return; }
+  if (G.boss) G.boss.exact = false;
+  if (!G.god && !G.test) G.hull--;
+  floatText(G.player.x, G.player.y - 50, 'Treffer!', '#ff5d73');
+  G.shake = 0.35; G.flash = 0.5;
+  SFX.escape();
 }
 
 async function bossDefeated() {
   const B = G.boss;
   B.state = 'dead';
-  const pts = 100 * G.round * (B.exact ? 2 : 1);
-  const ammo = toAmmo(lettersOf(alternatives(answerOf(B.item))[0]));
+  G.shots = []; if (G.arcade) G.bullets = [];
+  const pts = 100 * G.round * (G.arcade ? B.cores.length : B.maxHp) * (B.exact ? 2 : 1);
+  const ammo = G.arcade ? [] : toAmmo(lettersOf(alternatives(answerOf(B.item))[0]));
   G.score += pts; G.ammo.push(...ammo); G.kills++;
+  // Belohnung: jeder besiegte Boss repariert 1 Hüllenpunkt (nicht über das Maximum).
+  const repaired = G.hull < maxHull();
+  if (repaired) G.hull++;
+  const coins = 15 + G.round;
+  addCoins(coins);
   for (let i = 0; i < 4; i++) explode(B.x + (Math.random() - 0.5) * 60, B.y + (Math.random() - 0.5) * 40, i % 2 ? '#ff3355' : '#ffc94a', 30);
   G.shake = 0.6;
   SFX.explode(true); SFX.bomb();
   showPanel(null);
+  $('bInput').blur();
   phase = 'transition';
-  await banner(`Boss besiegt!<small>+${pts} Punkte · +${ammo.length} Schuss</small>`, 2000);
+  const extra = (G.arcade ? (B.exact ? ' · ohne Treffer: ×2' : '') : ` · +${ammo.length} Schuss`) + (repaired ? ' · +1 Hülle' : '') + ` · +${coins} 🪙`;
+  await banner(`Boss besiegt!<small>+${pts} Punkte${extra}</small>`, 2000);
   G.boss = null;
-  nextRound();
-}
-
-function endBoss() {
-  G.boss = null;
-  showPanel(null);
   nextRound();
 }
 
 // ---------- Ende ----------
 function saveStats() {
-  if (!G || G.test) return;
-  const s = stats();
-  store.set('hiscore', Math.max(s.hiscore, G.score));
+  if (!G || G.test || G.cheated) return;
+  const s = stats(), key = hiscoreKey(G.arcade);
+  store.set(key, Math.max(store.get(key, 0), G.score));
   store.set('totalKills', s.totalKills + G.kills - G.killsSaved);
   G.killsSaved = G.kills;
 }
@@ -1002,27 +1612,36 @@ function saveStats() {
 function gameOver() {
   phase = 'over';
   saveStats();
-  const best = store.get('hiscore', 0);
-  const isNew = !G.test && G.score > G.hiscoreAtStart;
+  const best = store.get(hiscoreKey(G.arcade), 0);
+  const isNew = !G.test && !G.cheated && G.score > G.hiscoreAtStart;
   $('overTitle').textContent = G.test ? 'Testmodus beendet' : 'Schiff zerstört – Game Over';
   $('overStats').innerHTML = `
-    <span>Punkte: <b>${G.score}</b>${isNew ? ' · neuer Highscore!' : ''}</span><span>Highscore: <b>${best}</b></span>
+    <span>Punkte: <b>${G.score}</b>${isNew ? ' · neuer Highscore!' : ''}</span><span>${G.arcade ? 'Arcade-Highscore' : 'Highscore'}: <b>${best}</b></span>
     <span>Erreichte Welle: <b>${G.round}</b></span><span>Abschüsse: <b>${G.kills}</b></span>
-    <span>Vokabeln richtig: <b>${G.right}/${G.asked}</b></span>${G.test ? '<span>kein Highscore im Testmodus</span>' : ''}`;
+    <span>Upgrades: <b>${Object.values(G.up).reduce((s, n) => s + n, 0)}</b></span>
+    ${G.arcade ? '<span>Modus: <b>Arcade</b></span>' : `<span>Vokabeln richtig: <b>${G.right}/${G.asked}</b></span>`}${G.test ? '<span>kein Highscore im Testmodus</span>' : ''}${G.cheated ? '<span>Entwickler-Menü benutzt: kein Highscore</span>' : ''}`;
   const sec = secureIn(G.pool, G.dir), diff = sec - G.secureAtStart;
-  $('overProgress').textContent = `Fortschritt: ${sec} von ${G.pool.length} Wörtern sicher` + (diff > 0 ? ` (+${diff} heute)` : '');
-  const newSkins = unlockedSkins().filter(id => !G.unlockedAtStart.includes(id));
-  $('overUnlock').textContent = newSkins.length ? 'Neues Raumschiff freigeschaltet: ' + newSkins.map(id => SKINS.find(s => s.id === id).name).join(', ') : '';
+  $('overProgress').textContent = G.arcade ? '' : `Fortschritt: ${sec} von ${G.pool.length} Wörtern sicher` + (diff > 0 ? ` (+${diff} heute)` : '');
+  checkUnlocks();
+  const newSkins = unlockedSkins().filter(id => !G.unlockedAtStart.includes(id)).map(id => SKINS.find(s => s.id === id));
+  $('overUnlock').innerHTML = newSkins.length
+    ? 'Neues Raumschiff freigeschaltet: ' + newSkins.map(s => `${s.name} (Code: <b>${s.code}</b>)`).join(', ') +
+      '<br><span class="hint">Mit dem Code kannst du das Schiff unter „Codes“ im Menü jederzeit wieder freischalten, z. B. in einem anderen Browser.</span>'
+    : '';
   $('missedBox').innerHTML = G.missed.size
     ? `<p>Diese Vokabeln solltest du noch üben:</p><ul class="missed">${[...G.missed].map(([q, a]) => `<li>${escapeHtml(q)} = <b>${escapeHtml(a)}</b></li>`).join('')}</ul>`
-    : (G.asked ? '<p>Keine Vokabel falsch. Stark!</p>' : '');
+    : (G.asked && !G.arcade ? '<p>Keine Vokabel falsch. Stark!</p>' : '');
   showPanel('over');
   SFX.gameOver();
 }
 
 function togglePause() {
-  if (phase === 'shoot') { phase = 'pause'; showPanel('pause'); }
-  else if (phase === 'pause') { phase = 'shoot'; showPanel(null); last = performance.now(); }
+  if (phase === 'shoot' || (phase === 'boss' && G.arcade)) {
+    G.pausedFrom = phase;
+    phase = 'pause'; showPanel('pause'); $('pauseDev').classList.toggle('hidden', !devUnlocked);
+    $('pauseUps').textContent = ownedText();
+  }
+  else if (phase === 'pause') { phase = G.pausedFrom || 'shoot'; showPanel(null); last = performance.now(); }
 }
 
 // ---------- Zeichnen ----------
@@ -1044,13 +1663,18 @@ function drawGlider(e, scale) {
   ctx.save(); ctx.translate(e.x, e.y); const s = (scale || e.r / 18); ctx.scale(s, s);
   if (e.type === 'bonus') ctx.rotate(e.vx > 0 ? -Math.PI / 2 : Math.PI / 2);
   else ctx.rotate(Math.cos(e.t * 1.4) * 0.15);
+  const tank = e.type === 'tank';
   const damaged = e.maxHp > 1 && e.hp < e.maxHp;
-  const color = e.flashT > 0 ? '#ffffff' : damaged ? '#6b4fa0' : e.color;
-  ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 12;
+  const color = e.flashT > 0 ? '#ffffff' : damaged && tank ? '#6b4fa0' : e.color;
+  if (e.gun) {   // Schützen-Gleiter: Kanone unter der Spitze
+    ctx.fillStyle = '#c77dff'; ctx.fillRect(-2.5, 10, 5, 11);
+  }
+  ctx.fillStyle = color; ctx.shadowColor = e.elite ? '#ffd84a' : color; ctx.shadowBlur = e.elite ? 20 : 12;
   ctx.beginPath(); ctx.moveTo(0, 16); ctx.lineTo(24, -10); ctx.lineTo(9, -5); ctx.lineTo(0, -14); ctx.lineTo(-9, -5); ctx.lineTo(-24, -10); ctx.closePath(); ctx.fill();
-  ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.75)';
+  if (e.elite) { ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 2.5; ctx.stroke(); }
+  ctx.shadowBlur = 0; ctx.fillStyle = e.gun ? '#c77dff' : 'rgba(255,255,255,.75)';
   ctx.beginPath(); ctx.ellipse(0, 1, 3.5, 6, 0, 0, Math.PI * 2); ctx.fill();
-  if (e.maxHp > 1 && !damaged) {
+  if (tank && !damaged) {
     ctx.strokeStyle = '#e8ecff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(0, 0, 27, 0, Math.PI * 2); ctx.stroke();
   }
@@ -1062,9 +1686,56 @@ function drawGlider(e, scale) {
 }
 
 function drawBoss(B) {
-  drawGlider({ x: B.x, y: B.y, t: B.t, type: 'boss', color: '#ff3355', maxHp: 1, hp: 1, flashT: B.flashT }, 3);
+  if (B.state !== 'enter' && B.state !== 'breach') {
+    const danger = Math.max(0, Math.min(1, (B.y - 60) / (B.lineY - 60)));
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,51,85,${0.35 + danger * 0.5 + (danger > 0.7 ? Math.sin(B.t * 12) * 0.15 : 0)})`;
+    ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+    const ly = B.lineY + 10 * B.scale;
+    ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(W, ly); ctx.stroke();
+    ctx.restore();
+  }
+  drawGlider({ x: B.x, y: B.y, t: B.t, type: 'boss', color: B.color, maxHp: 1, hp: 1, flashT: B.flashT }, B.scale);
+  const top = B.y - 14 * B.scale;
   ctx.fillStyle = '#ffc94a'; ctx.font = '800 16px system-ui, sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('BOSS', B.x, B.y - 52);
+  ctx.fillText(B.name, B.x, top - 20);
+  if (B.cores) drawCores(B, top);
+  if (B.maxHp > 1) {
+    const w = 26, gap = 6, x0 = B.x - (B.maxHp * w + (B.maxHp - 1) * gap) / 2;
+    for (let i = 0; i < B.maxHp; i++) {
+      ctx.fillStyle = i < B.hp ? '#ff3355' : '#33405f';
+      ctx.fillRect(x0 + i * (w + gap), top - 10, w, 6);
+    }
+  }
+}
+
+// Arcade-Boss: Kerne (offen = leuchtend, geschlossen = grau gepanzert, zerstört = qualmend)
+// und ein gemeinsamer Lebensbalken über dem Namen.
+function drawCores(B, top) {
+  const now = performance.now();
+  for (const c of B.cores) {
+    const p = corePos(B, c);
+    ctx.save(); ctx.translate(p.x, p.y);
+    if (c.hp <= 0) {
+      ctx.fillStyle = '#1a1f33'; ctx.beginPath(); ctx.arc(0, 0, p.r * 0.8, 0, Math.PI * 2); ctx.fill();
+      if (phase !== 'pause' && Math.random() < 0.25) G.parts.push({ x: p.x, y: p.y, vx: (Math.random() - 0.5) * 30, vy: -50, life: 0.5, color: '#5a5f73' });
+    } else if (coreOpen(B, c)) {
+      const glow = c.flashT > 0 ? '#ffffff' : '#ffe14a';
+      ctx.shadowColor = glow; ctx.shadowBlur = 14 + Math.sin(now / 90) * 6;
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0; ctx.fillStyle = '#fff8d0'; ctx.beginPath(); ctx.arc(0, 0, p.r * 0.45, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ff3355'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, p.r + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * c.hp / c.maxHp); ctx.stroke();
+    } else {
+      ctx.fillStyle = '#3a4466'; ctx.strokeStyle = '#8f9ac4'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-p.r * 0.7, 0); ctx.lineTo(p.r * 0.7, 0); ctx.moveTo(0, -p.r * 0.7); ctx.lineTo(0, p.r * 0.7); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  const hp = B.cores.reduce((s, c) => s + Math.max(0, c.hp), 0), max = B.cores.reduce((s, c) => s + c.maxHp, 0);
+  ctx.fillStyle = '#33405f'; ctx.fillRect(B.x - 70, top - 10, 140, 6);
+  ctx.fillStyle = '#ff3355'; ctx.fillRect(B.x - 70, top - 10, 140 * hp / max, 6);
 }
 
 function drawDrop(d) {
@@ -1082,27 +1753,35 @@ function drawHud() {
   ctx.fillStyle = 'rgba(7,11,26,.6)'; ctx.fillRect(0, 0, W, 34);
   ctx.font = '600 15px system-ui, sans-serif'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#8f9ac4'; ctx.textAlign = 'left';
-  ctx.fillText(G.bonus ? `Bonuswelle · ${G.bonusKills}/${G.waveTotal}` : `Welle ${G.round} · Gegner ${G.enemies.length + G.spawnLeft}`, 14, 17);
+  ctx.fillText(G.boss ? `${G.boss.name} · Welle ${G.round}` : G.bonus ? `Bonuswelle · ${G.bonusKills}/${G.waveTotal}` : `Welle ${G.round} · Gegner ${G.enemies.length + G.spawnLeft}`, 14, 17);
   if (!G.test) {
     ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#8f9ac4'; ctx.fillText('Hülle', 14, 50);
-    for (let i = 0; i < HULL; i++) {
+    for (let i = 0; i < maxHull(); i++) {
       ctx.fillStyle = i < G.hull ? (G.hull <= 2 ? '#ff5d73' : '#5bf08a') : '#18234d';
       ctx.fillRect(58 + i * 20, 43, 16, 14);
     }
+    ctx.fillStyle = '#ffd84a'; ctx.fillText(`🪙 ${G.coins}`, 14, 72);
     ctx.font = '600 15px system-ui, sans-serif';
   }
   ctx.fillStyle = '#e8ecff'; ctx.textAlign = 'center';
   const mult = comboMult();
   ctx.fillText(`Punkte ${G.score}` + (mult > 1 ? `  ·  Kombo x${mult}` : ''), W / 2, 17);
   ctx.textAlign = 'right';
-  if (G.test) {
+  if (G.arcade) {
+    const w = 120, x0 = W - 14 - w, h = G.heat / 100, blink = Math.floor(performance.now() / 150) % 2;
+    ctx.fillStyle = G.overheat ? '#ff5d73' : '#8f9ac4'; ctx.fillText('Hitze', x0 - 8, 17);
+    ctx.fillStyle = '#18234d'; ctx.fillRect(x0, 10, w, 14);
+    ctx.fillStyle = G.overheat ? (blink ? '#ff5d73' : '#ffc94a') : h > 0.7 ? '#ff8a3c' : '#ffc94a';
+    ctx.fillRect(x0, 10, w * h, 14);
+    if (G.overheat) { ctx.font = '700 15px system-ui, sans-serif'; ctx.fillStyle = '#ff5d73'; ctx.fillText('ÜBERHITZT! Kühlt ab …', W - 14, 50); }
+  } else if (G.test) {
     ctx.fillStyle = '#ffc94a'; ctx.fillText('⚡ ∞ Schuss', W - 14, 17);
     ctx.textAlign = 'left'; ctx.fillStyle = '#ff6bd6'; ctx.font = '700 14px system-ui, sans-serif'; ctx.fillText('TESTMODUS', 14, 50);
   } else {
     const low = G.ammo.length < 15;
     ctx.fillStyle = low ? '#ff5d73' : '#ffc94a'; ctx.fillText(`⚡ ${G.ammo.length} Schuss`, W - 14, 17);
     if (low && !G.bonus && Math.floor(performance.now() / 300) % 2) {
-      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillText('Munition knapp! R = Nachladen', W - 14, 50);
+      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillText(isTouch ? 'Munition knapp! Nachladen ↓' : 'Munition knapp! R = Nachladen', W - 14, 50);
     }
     ctx.textAlign = 'left'; ctx.font = '700 15px ui-monospace, monospace'; ctx.fillStyle = '#ffc94a';
     ctx.fillText('Nächste: ' + G.ammo.slice(0, 14).join(' ') + (G.ammo.length > 14 ? ' …' : ''), 14, H - 14);
@@ -1114,7 +1793,7 @@ function drawHud() {
     if (G.power[type] <= 0) continue;
     const def = POWERUPS[type];
     ctx.fillStyle = def.color; ctx.fillText(`${def.name} ${Math.ceil(G.power[type])} s`, W - 14, py);
-    ctx.fillRect(W - 14 - 60, py + 8, 60 * G.power[type] / def.dur, 3);
+    ctx.fillRect(W - 14 - 60, py + 8, 60 * Math.min(1, G.power[type] / def.dur), 3);
     py -= 22;
   }
   if (G.rush) { ctx.textAlign = 'center'; ctx.fillStyle = '#ff5d73'; ctx.font = '800 18px system-ui, sans-serif'; ctx.fillText('Endspurt!', W / 2, 52); }
@@ -1142,7 +1821,7 @@ function draw(dt) {
   }
   ctx.globalAlpha = 1; G.parts = G.parts.filter(p => p.life > 0);
 
-  if (['shoot', 'transition', 'over', 'pause', 'boss'].includes(phase)) {
+  if (['shoot', 'transition', 'over', 'pause', 'boss', 'dev', 'upgrade'].includes(phase)) {
     for (const e of G.enemies) {
       if (e.type !== 'bonus' && e.y < 0 && Math.floor(performance.now() / 150) % 2) {
         ctx.fillStyle = e.color; ctx.beginPath(); ctx.moveTo(e.x - 8, 40); ctx.lineTo(e.x + 8, 40); ctx.lineTo(e.x, 52); ctx.closePath(); ctx.fill();
@@ -1152,13 +1831,46 @@ function draw(dt) {
     if (G.boss && G.boss.state !== 'dead') drawBoss(G.boss);
     for (const d of G.drops) drawDrop(d);
     ctx.font = '800 20px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const shipColor = currentSkin().color;   // Projektile in der Farbe des eigenen Schiffs
     for (const b of G.bullets) {
-      ctx.shadowColor = '#ffc94a'; ctx.shadowBlur = 10; ctx.fillStyle = b.ch === '★' ? '#fff27a' : '#ffc94a';
+      if (b.ghost) {   // Phantomschuss: durchscheinend, größer, mit Schweif
+        ctx.save();
+        ctx.globalAlpha = 0.25; ctx.fillStyle = shipColor;
+        ctx.beginPath(); ctx.ellipse(b.x, b.y + 16, 4, 16, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.65; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 18;
+        if (b.dot) { ctx.beginPath(); ctx.arc(b.x, b.y, 7, 0, Math.PI * 2); ctx.fill(); }
+        else { ctx.font = '800 26px ui-monospace, monospace'; ctx.fillText(b.ch, b.x, b.y); }
+        ctx.globalAlpha = 0.9; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.arc(b.x, b.y, 9, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+      if (b.dot) {
+        ctx.shadowColor = shipColor; ctx.shadowBlur = 12; ctx.fillStyle = shipColor;
+        ctx.beginPath(); ctx.arc(b.x, b.y, 4.5, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.8)';
+        ctx.beginPath(); ctx.arc(b.x, b.y, 1.8, 0, Math.PI * 2); ctx.fill();
+        continue;
+      }
+      // ★-Superschüsse bleiben hellgelb, damit man sie erkennt.
+      const c = b.ch === '★' ? '#fff27a' : shipColor;
+      ctx.shadowColor = c; ctx.shadowBlur = 10; ctx.fillStyle = c;
       ctx.fillText(b.ch, b.x, b.y);
+    }
+    for (const s of G.shots) {
+      ctx.shadowColor = '#c77dff'; ctx.shadowBlur = 14; ctx.fillStyle = '#c77dff';
+      ctx.beginPath(); ctx.arc(s.x, s.y, 6.5, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0; ctx.fillStyle = '#f3e3ff';
+      ctx.beginPath(); ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2); ctx.fill();
     }
     ctx.shadowBlur = 0;
     if (phase !== 'over') {
       drawShip(G.player.x, G.player.y, currentSkin());
+      if (G.arcade && G.heat > 0) {
+        const px = G.player.x, py = G.player.y + 26;
+        ctx.fillStyle = 'rgba(24,35,77,.85)'; ctx.fillRect(px - 20, py, 40, 4);
+        ctx.fillStyle = G.overheat ? '#ff5d73' : G.heat > 70 ? '#ff8a3c' : '#ffc94a'; ctx.fillRect(px - 20, py, 40 * G.heat / 100, 4);
+      }
       if (G.shield > 0) {
         ctx.strokeStyle = `rgba(143,180,255,${0.35 + G.shield * 0.15})`; ctx.lineWidth = 2 + G.shield;
         ctx.beginPath(); ctx.arc(G.player.x, G.player.y, 34 + Math.sin(performance.now() / 150) * 2, 0, Math.PI * 2); ctx.stroke();
@@ -1171,14 +1883,21 @@ function draw(dt) {
       if (t.sub) { ctx.fillStyle = '#3ee0ff'; ctx.font = '600 14px system-ui, sans-serif'; ctx.fillText(t.sub, t.x, t.y + 18); }
     }
     ctx.globalAlpha = 1; G.texts = G.texts.filter(t => t.life > 0);
-    if (phase === 'shoot' || phase === 'pause') drawHud();
-    if (phase === 'shoot' && G.hintT > 0) {
+    if (phase === 'shoot' || phase === 'pause' || (phase === 'boss' && G.arcade)) drawHud();
+    if (phase === 'shoot' && G.hintT > 0 && G.arcade) {
       ctx.fillStyle = '#e8ecff'; ctx.font = '600 20px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('← → oder A/D bewegen · Leertaste feuern', W / 2, H / 2 + 60);
-      ctx.fillText('R = Nachladen · Esc = Pause', W / 2, H / 2 + 88);
+      ctx.fillText(isTouch ? 'Finger aufs Spielfeld: bewegen + feuern' : '← → oder A/D bewegen · Leertaste feuern', W / 2, H / 2 + 60);
+      ctx.fillText(isTouch ? '⏸ oben links = Pause' : 'Esc = Pause', W / 2, H / 2 + 88);
+      ctx.fillStyle = '#8f9ac4'; ctx.font = '16px system-ui, sans-serif';
+      ctx.fillText('Dauerfeuer überhitzt die Kanone – kurz loslassen kühlt ab.', W / 2, H / 2 + 122);
+      ctx.fillText(`Jeder durchgekommene Gleiter beschädigt die Hülle (${maxHull()} Treffer).`, W / 2, H / 2 + 144);
+    } else if (phase === 'shoot' && G.hintT > 0) {
+      ctx.fillStyle = '#e8ecff'; ctx.font = '600 20px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(isTouch ? 'Finger aufs Spielfeld: bewegen + feuern' : '← → oder A/D bewegen · Leertaste feuern', W / 2, H / 2 + 60);
+      ctx.fillText(isTouch ? '🔄 Nachladen oben rechts · ⏸ Pause' : 'R = Nachladen · Esc = Pause', W / 2, H / 2 + 88);
       ctx.fillStyle = '#8f9ac4'; ctx.font = '16px system-ui, sans-serif';
       ctx.fillText('Nachladen = Vokabeln tippen.', W / 2, H / 2 + 122);
-      ctx.fillText(`Jeder durchgekommene Gleiter beschädigt die Hülle (${HULL} Treffer).`, W / 2, H / 2 + 144);
+      ctx.fillText(`Jeder durchgekommene Gleiter beschädigt die Hülle (${maxHull()} Treffer).`, W / 2, H / 2 + 144);
     }
   }
   if (G.whiteFlash > 0) {
@@ -1193,23 +1912,188 @@ function draw(dt) {
   }
 }
 
+// Touch-Buttons (Pause, Nachladen) nur auf Touch-Geräten und nur, wenn gerade geflogen wird.
+let touchState = '';
+function updateTouchUi() {
+  const fly = G && (phase === 'shoot' || (phase === 'boss' && G.arcade));
+  const reload = fly && phase === 'shoot' && !G.arcade && !G.test;
+  const state = isTouch && fly ? (reload ? 'both' : 'pause') : 'none';
+  if (state === touchState) return;
+  touchState = state;
+  $('touch').classList.toggle('hidden', state === 'none');
+  $('tReload').classList.toggle('hidden', state !== 'both');
+}
+
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (phase === 'shoot') updateShoot(dt);
   else if (phase === 'boss') updateBoss(dt);
   if (phase === 'shoot' || phase === 'boss') Music.start(); else Music.stop();
+  updateTouchUi();
   draw(dt);
   requestAnimationFrame(loop);
 }
 
+// ---------- Codes & Entwickler-Menü ----------
+let devUnlocked = store.get('dev', false), devPrev = null, resetArmed = false;
+
+const CHEATS = {
+  consola: () => {
+    devUnlocked = true; store.set('dev', true);
+    return 'Entwickler-Menü freigeschaltet! Im Spiel mit F2 oder über das Pausenmenü öffnen.';
+  },
+  // Löscht allen Fortschritt. Einstellungen (Themen, eigene Liste, Richtung, Ton) bleiben.
+  // Muss zur Sicherheit zweimal hintereinander eingegeben werden.
+  reset: () => {
+    if (!resetArmed) {
+      resetArmed = true;
+      return { warn: true, text: 'Achtung: Das löscht Highscore, Abschüsse, Lernfortschritt, freigeschaltete Schiffe und Codes. Zum Bestätigen „reset“ nochmal eingeben.' };
+    }
+    for (const k of ['hiscore', 'hiscoreArcade', 'totalKills', 'leitner', 'codeSkins', 'skin', 'dev']) {
+      try { localStorage.removeItem('vb_' + k); } catch (e) {}
+    }
+    leitner = {}; devUnlocked = false;
+    buildMenu();
+    return 'Aller Fortschritt wurde zurückgesetzt.';
+  },
+};
+// Jedes freischaltbare Schiff hat einen eigenen Code (wird beim Freischalten angezeigt).
+for (const s of SKINS) if (s.code) CHEATS[s.code.toLowerCase()] = () => {
+  if (unlockedSkins().includes(s.id)) return `${s.name} ist schon freigeschaltet.`;
+  store.set('codeSkins', store.get('codeSkins', []).concat(s.id));
+  store.set('skin', s.id);
+  buildMenu();
+  return `Raumschiff ${s.name} freigeschaltet und ausgewählt!`;
+};
+
+// Neu freigeschaltete Schiffe erkennen. Das gewählte Schiff bleibt im laufenden Spiel,
+// das neue kann danach im Menü ausgewählt werden.
+function checkUnlocks() {
+  const fresh = unlockedSkins().filter(id => !G.knownSkins.includes(id)).map(id => SKINS.find(s => s.id === id));
+  if (!fresh.length) return fresh;
+  G.knownSkins.push(...fresh.map(s => s.id));
+  buildMenu();   // damit das neue Schiff im Menü gleich freigeschaltet angezeigt wird
+  return fresh;
+}
+
+function openCheats() {
+  phase = 'cheat';
+  resetArmed = false;
+  showPanel('cheat');
+  $('cheatInput').value = ''; $('cheatFb').textContent = ''; $('cheatFb').className = 'fb';
+  $('cheatInput').focus();
+}
+
+function closeCheats() { phase = 'menu'; showPanel('menu'); }
+
+function redeemCheat() {
+  const code = $('cheatInput').value.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!code) return;
+  const fb = $('cheatFb'), fn = CHEATS[code];
+  if (code !== 'reset') resetArmed = false;
+  if (!fn) { fb.className = 'fb bad'; fb.textContent = 'Unbekannter Code.'; shakeInput('cheatInput'); return; }
+  const res = fn(), warn = typeof res === 'object';
+  fb.className = 'fb ' + (warn ? 'warn' : 'good');
+  fb.textContent = warn ? res.text : res;
+  $('cheatInput').value = '';
+  if (warn) SFX.wrong(); else SFX.pickup();
+}
+
+const visiblePanel = () => ['quiz', 'bossPanel'].find(p => !$(p).classList.contains('hidden')) || null;
+
+function openDev() {
+  if (!devUnlocked || !G || !['shoot', 'pause', 'boss', 'reload'].includes(phase)) return;
+  devPrev = { phase: phase === 'pause' ? (G.pausedFrom || 'shoot') : phase, panel: phase === 'pause' ? null : visiblePanel() };
+  phase = 'dev';
+  for (const k in keys) keys[k] = false;
+  pointer.active = false;
+  $('devWave').value = G.round + 1;
+  $('devGod').textContent = 'Unverwundbar: ' + (G.god ? 'an' : 'aus');
+  $('devFb').textContent = '';
+  showPanel('dev');
+}
+
+function closeDev() {
+  if (phase !== 'dev') return;
+  phase = devPrev.phase;
+  showPanel(devPrev.panel);
+  last = performance.now();
+  if (phase === 'boss' && G.boss && G.boss.state === 'wait') $('bInput').focus();
+  if (phase === 'reload') { if (G.qMode === 'wait') nextQuestion(); else $('qInput').focus(); }
+}
+
+// Sprung an eine andere Stelle im Spiel: alles Laufende wegräumen.
+function devReset() {
+  G.boss = null; G.enemies = []; G.bullets = []; G.drops = []; G.shots = [];
+  showPanel(null);
+  $('bInput').blur(); $('qInput').blur();
+}
+
+function devAction(a) {
+  if (phase !== 'dev') return;
+  G.cheated = true;
+  const msg = text => { $('devFb').textContent = '✓ ' + text; SFX.pickup(); };
+  if (a === 'wave') {
+    const n = Math.max(1, Math.min(99, parseInt($('devWave').value, 10) || 1));
+    devReset(); G.round = n - 1; G.breather = false;
+    return nextRound(true);
+  }
+  if (a.startsWith('boss-')) { devReset(); return startBoss(a.slice(5)); }
+  if (a === 'clear') {
+    if (devPrev.phase === 'boss' && G.boss && G.boss.state !== 'dead') { phase = 'boss'; return bossDefeated(); }
+    G.enemies = []; G.spawnLeft = 0;
+    return closeDev();
+  }
+  if (a === 'ammo') { G.ammo.push(...Array.from({ length: 100 }, (_, i) => 'CONSOLA'[i % 7])); msg('+100 Schuss'); }
+  else if (a === 'stars') { G.ammo.unshift(...Array(20).fill('★')); msg('+20 Superschüsse (werden zuerst verschossen)'); }
+  else if (a === 'repair') { G.hull = maxHull(); msg('Hülle repariert'); }
+  else if (a === 'shield') { G.shield = 3; msg('Schild aktiv (3 Treffer)'); }
+  else if (a === 'powers') { for (const t of ['double', 'spread', 'rapid', 'speed']) G.power[t] = 30; msg('Alle Power-ups für 30 s'); }
+  else if (a === 'god') {
+    G.god = !G.god;
+    $('devGod').textContent = 'Unverwundbar: ' + (G.god ? 'an' : 'aus');
+    msg(G.god ? 'Unverwundbar an' : 'Unverwundbar aus');
+  }
+}
+
+$('cheatBtn').addEventListener('click', openCheats);
+$('cheatOk').addEventListener('click', redeemCheat);
+$('cheatBack').addEventListener('click', closeCheats);
+$('pauseDev').addEventListener('click', openDev);
+$('devClose').addEventListener('click', closeDev);
+$('devOff').addEventListener('click', () => { devUnlocked = false; store.set('dev', false); closeDev(); });
+$('dev').addEventListener('click', e => { const a = e.target.dataset.dev; if (a) devAction(a); });
+$('rerollBtn').addEventListener('click', () => { if (G && G.reroll) G.reroll(); });
+$('cards').addEventListener('click', e => {
+  const card = e.target.closest('.card');
+  if (card && !card.disabled && G && G.pick) G.pick([...$('cards').children].indexOf(card));
+});
+
 // ---------- Eingaben ----------
 document.addEventListener('keydown', e => {
-  if (phase === 'shoot' && ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
-  if (phase !== 'boss') keys[e.code] = true;
+  if (phase === 'cheat') {
+    if (e.key === 'Enter') { e.preventDefault(); redeemCheat(); }
+    else if (e.code === 'Escape') { e.preventDefault(); closeCheats(); }
+    return;
+  }
+  if (phase === 'dev') {
+    if (e.code === 'Escape' || e.code === 'F2') { e.preventDefault(); closeDev(); }
+    return;
+  }
+  if (phase === 'upgrade') {
+    const i = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(e.code) % 3;
+    if (i >= 0 && G.pick) { e.preventDefault(); G.pick(i); }
+    else if (e.code === 'KeyR' && G.reroll) { e.preventDefault(); G.reroll(); }
+    return;
+  }
+  if (e.code === 'F2' && devUnlocked) { e.preventDefault(); openDev(); return; }
+  const arcadeBoss = phase === 'boss' && G && G.arcade;
+  if ((phase === 'shoot' || arcadeBoss) && ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+  if (phase !== 'boss' || arcadeBoss) keys[e.code] = true;
   if (e.code === 'Escape' && phase === 'reload') { e.preventDefault(); closeReload(); return; }
-  if (e.code === 'KeyR' && phase === 'shoot' && !G.test) { e.preventDefault(); keys.KeyR = false; openReload(); return; }
-  if (e.code === 'Escape' || (e.code === 'KeyP' && phase === 'shoot')) { togglePause(); return; }
+  if (e.code === 'KeyR' && phase === 'shoot' && !G.test && !G.arcade) { e.preventDefault(); keys.KeyR = false; openReload(); return; }
+  if (e.code === 'Escape' || (e.code === 'KeyP' && (phase === 'shoot' || arcadeBoss))) { togglePause(); return; }
   if (e.key === 'Enter') {
     if (phase === 'reload') { e.preventDefault(); submitAnswer(); }
     else if (phase === 'boss') { e.preventDefault(); bossSubmit(); }
@@ -1218,12 +2102,23 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
-window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; pointer.active = false; if (phase === 'shoot') togglePause(); });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; pointer.active = false; if (phase === 'shoot' || phase === 'boss') togglePause(); });
 
 function pointerPos(e) { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) * W / r.width; }
-cv.addEventListener('pointerdown', e => { if (phase === 'shoot') { pointer.active = true; pointer.x = pointerPos(e); } });
+cv.addEventListener('pointerdown', e => { if (phase === 'shoot' || (phase === 'boss' && G.arcade)) { pointer.active = true; pointer.x = pointerPos(e); } });
 cv.addEventListener('pointermove', e => { if (pointer.active) pointer.x = pointerPos(e); });
 window.addEventListener('pointerup', () => { pointer.active = false; });
+window.addEventListener('pointercancel', () => { pointer.active = false; });
+// iPad: beim Wechsel in eine andere App oder Sperren automatisch pausieren.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  for (const k in keys) keys[k] = false;
+  pointer.active = false;
+  if (phase === 'shoot' || phase === 'boss') togglePause();
+});
+$('tPause').addEventListener('click', () => { pointer.active = false; togglePause(); });
+$('tReload').addEventListener('click', () => { if (phase === 'shoot' && G && !G.arcade && !G.test) openReload(); });
+$('qBack').addEventListener('click', closeReload);
 
 for (const id of ['qAccents', 'bAccents']) {
   $(id).addEventListener('mousedown', e => e.preventDefault());
@@ -1247,10 +2142,19 @@ $('useCustom').addEventListener('change', () => { $('customBox').classList.toggl
 $('topics').addEventListener('change', updateMenuProgress);
 $('customList').addEventListener('input', updateMenuProgress);
 for (const r of document.querySelectorAll('input[name=dir]')) r.addEventListener('change', updateMenuProgress);
+$('mode').addEventListener('change', () => { store.set('mode', $('mode').value); applyMode(); });
+function showShipDesc(id, locked = false) {
+  const s = SKINS.find(k => k.id === id) || SKINS[0];
+  $('shipDesc').innerHTML = `<b style="color:${s.color}">${s.name}:</b> ${s.desc}` +
+    (locked ? `<br>🔒 Freischalten: ${s.need} (oder mit Code)` : '');
+}
 $('ships').addEventListener('click', e => {
-  const id = e.target.dataset.skin; if (!id) return;
+  const btn = e.target.closest('button'); if (!btn) return;
+  if (btn.dataset.locked) return showShipDesc(btn.dataset.locked, true);
+  const id = btn.dataset.skin; if (!id) return;
   store.set('skin', id);
   for (const b of document.querySelectorAll('#ships button')) b.classList.toggle('sel', b.dataset.skin === id);
+  showShipDesc(id);
 });
 $('musicBtn').addEventListener('click', () => { musicOn = !musicOn; store.set('music', musicOn); $('musicBtn').textContent = musicOn ? 'Musik: an' : 'Musik: aus'; });
 $('muteBtn').addEventListener('click', () => { muted = !muted; store.set('muted', muted); $('muteBtn').textContent = muted ? 'Ton: aus' : 'Ton: an'; });
