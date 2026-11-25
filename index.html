@@ -294,7 +294,7 @@ const LISTS = {
     ['die Familie','la familia'],['der Großvater','el abuelo'],['die Großmutter','la abuela'],['der Lehrer','el profesor'],
     ['die Eltern','los padres'],['der Sohn','el hijo'],['die Tochter','la hija'],['die Geschwister','los hermanos']]},
   tiere: { name: 'Tiere', words: [
-    ['der Hund','el perro'],['die Katze','el gato / la gata'],['das Pferd','el caballo'],['der Vogel','el pájaro'],
+    ['der Hund','el perro'],['der Kater','el gato'],['die Katze','la gata'],['das Pferd','el caballo'],['der Vogel','el pájaro'],
     ['der Fisch','el pez'],['die Maus','el ratón'],['die Kuh','la vaca'],['das Schwein','el cerdo'],
     ['der Bär','el oso'],['die Schlange','la serpiente'],['der Affe','el mono'],['das Huhn','la gallina'],
     ['das Kaninchen','el conejo'],['der Elefant','el elefante'],['die Spinne','la araña'],['der Löwe','el león']]},
@@ -304,11 +304,12 @@ const LISTS = {
     ['sechs','seis'],['sieben','siete'],['acht','ocho'],['neun','nueve'],['zehn','diez'],['zwanzig','veinte'],['hundert','cien']]},
   essen: { name: 'Essen & Trinken', words: [
     ['das Brot','el pan'],['das Wasser','el agua'],['die Milch','la leche'],['der Apfel','la manzana'],
-    ['die Banane','el plátano / la banana'],['der Käse','el queso'],['das Ei','el huevo'],['das Fleisch','la carne'],
-    ['der Reis','el arroz'],['die Suppe','la sopa'],['der Saft','el zumo / el jugo'],['das Hähnchen','el pollo'],
-    ['der Kuchen','el pastel / la tarta'],['die Kartoffel','la patata / la papa'],['das Frühstück','el desayuno'],['das Eis','el helado']]},
+    ['die Banane (Spanien)','el plátano'],['die Banane (Lateinamerika)','la banana'],['der Käse','el queso'],['das Ei','el huevo'],['das Fleisch','la carne'],
+    ['der Reis','el arroz'],['die Suppe','la sopa'],['der Saft (Spanien)','el zumo'],['der Saft (Lateinamerika)','el jugo'],['das Hähnchen','el pollo'],
+    ['der Kuchen','el pastel'],['die Torte','la tarta'],
+    ['die Kartoffel (Spanien)','la patata'],['die Kartoffel (Lateinamerika)','la papa'],['das Frühstück','el desayuno'],['das Eis','el helado']]},
   schule: { name: 'Schule', words: [
-    ['die Schule','la escuela / el colegio'],['das Buch','el libro'],['das Heft','el cuaderno'],['der Kuli','el bolígrafo / el boli'],
+    ['die Schule','la escuela'],['die Schule (in Spanien üblich)','el colegio'],['das Buch','el libro'],['das Heft','el cuaderno'],['der Kuli','el bolígrafo / el boli'],
     ['der Bleistift','el lápiz'],['der Tisch','la mesa'],['der Stuhl','la silla'],['die Tafel','la pizarra'],
     ['die Hausaufgaben','los deberes'],['die Klasse','la clase'],['der Rucksack','la mochila'],['das Fenster','la ventana'],
     ['die Tür','la puerta'],['das Wörterbuch','el diccionario'],['die Pause','el recreo'],['die Lehrerin','la profesora']]},
@@ -318,22 +319,24 @@ const LISTS = {
     ['schlafen','dormir'],['lernen','aprender'],['arbeiten','trabajar'],['kaufen','comprar'],['sehen','ver'],
     ['wollen','querer'],['können','poder'],['kommen','venir'],['rennen','correr'],['tanzen','bailar']]},
   saetze: { name: 'Ganze Sätze', words: [
-    ['Ich heiße Pablo.','Me llamo Pablo.'],['Wie heißt du?','¿Cómo te llamas?'],['Wie geht es dir?','¿Qué tal? / ¿Cómo estás?'],
+    ['Ich heiße Pablo.','Me llamo Pablo.'],['Wie heißt du?','¿Cómo te llamas?'],['Wie geht\'s?','¿Qué tal?'],['Wie geht es dir?','¿Cómo estás?'],
     ['Mir geht es gut.','Estoy bien.'],['Ich bin vierzehn Jahre alt.','Tengo catorce años.'],['Woher kommst du?','¿De dónde eres?'],
     ['Ich komme aus Deutschland.','Soy de Alemania.'],['Ich habe einen Hund.','Tengo un perro.'],
     ['Ich spreche ein bisschen Spanisch.','Hablo un poco de español.'],['Wo ist die Toilette?','¿Dónde está el baño?'],
     ['Ich mag Fußball.','Me gusta el fútbol.'],['Ich habe Hunger.','Tengo hambre.'],['Wie spät ist es?','¿Qué hora es?'],
     ['Bis morgen!','¡Hasta mañana!'],['Ich verstehe nicht.','No entiendo.'],['Ich wohne in Berlin.','Vivo en Berlín.'],
-    ['Mein Hund hat meine Hausaufgaben gefressen.','Mi perro se comió mis deberes. / Mi perro se ha comido mis deberes.'],
-    ['Ich bin kein Pinguin.','No soy un pingüino.'],['Meine Katze spricht Spanisch.','Mi gato habla español. / Mi gata habla español.']]},
+    ['Mein Hund fraß meine Hausaufgaben.','Mi perro se comió mis deberes.'],
+    ['Mein Hund hat meine Hausaufgaben gefressen.','Mi perro se ha comido mis deberes.'],
+    ['Ich bin kein Pinguin.','No soy un pingüino.'],
+    ['Mein Kater spricht Spanisch.','Mi gato habla español.'],['Meine Katze spricht Spanisch.','Mi gata habla español.']]},
   // Aus den ANTON-Lernlisten „Apúntate 2“ (Spanisch – Deutsch). Für Vokabel-Blaster bereinigt:
   // Varianten mit / getrennt, Grammatik-Kürzel (m./f., pl., o>ue …) entfernt, Hinweise in Klammern.
   ap2u1ac: { name: 'Apúntate 2 · U1 Acércate', words: [
-    ['willkommen','bienvenido / bienvenida'],['das schwarze Brett','el tablón de anuncios'],['die Anzeige','el anuncio'],
+    ['willkommen (männlich)','bienvenido'],['willkommen (weiblich)','bienvenida'],['das schwarze Brett','el tablón de anuncios'],['die Anzeige','el anuncio'],
     ['ihnen','les'],['überhaupt nicht','para nada'],['euch','os'],['trainieren','entrenar'],['das Training','el entrenamiento'],
     ['das Spielfeld / der Platz','el campo'],['das Gymnasium / die Schule','el instituto / el insti'],['uns','nos'],
-    ['tanzen','bailar'],['mit dir','contigo'],['das Skateboard','el monopatín'],['neu sein','ser nuevo / ser nueva'],
-    ['ich würde gerne ...','me gustaría ...'],['Skateboard fahren','andar en monopatín'],['gehen','andar'],
+    ['tanzen','bailar'],['mit dir','contigo'],['das Skateboard','el monopatín'],['neu sein (männlich)','ser nuevo'],['neu sein (weiblich)','ser nueva'],
+    ['ich würde gerne ...','me gustaría ...'],['Skateboard fahren','andar en monopatín'],['gehen (zu Fuß)','andar'],
     ['Fotos machen','sacar fotos'],['der Pate (Schule)','el padrino'],['die Patin (Schule)','la madrina'],
     ['das Schlagzeug','la batería'],['die Band','la banda'],['wegen','por'],['mit mir','conmigo'],['besonders sein','ser especial']]},
   ap2u1ta: { name: 'Apúntate 2 · U1 Texto A', words: [
@@ -343,10 +346,10 @@ const LISTS = {
     ['der Einkauf','la compra'],['auf jemanden warten','esperar a alguien'],['kurz darauf','poco después'],['da','ahí'],
     ['das Marzipan','el mazapán'],['Wie lecker!','¡Qué rico!'],['jemandem etwas geben','dar algo a alguien']]},
   ap2u1tb: { name: 'Apúntate 2 · U1 Texto B', words: [
-    ['alle / ganz / jeder / jede / jedes','todo / toda'],['etwas setzen / etwas stellen / etwas legen','poner algo'],
+    ['ganz / jeder (männlich)','todo'],['ganz / jede (weiblich)','toda'],['etwas setzen / etwas stellen / etwas legen','poner algo'],
     ['die Ausstellung','la exposición'],['das Brot','el pan'],['an etwas vorbeigehen','pasar por algo'],
     ['das Kleidungsgeschäft','la tienda de ropa'],['die Kleidung','la ropa'],['der Supermarkt','el supermercado'],
-    ['die Apotheke','la farmacia'],['die Halfpipe','el medio tubo'],['cool sein','ser chulo / ser chula'],
+    ['die Apotheke','la farmacia'],['die Halfpipe','el medio tubo'],['cool sein (männlich)','ser chulo'],['cool sein (weiblich)','ser chula'],
     ['zur Seite legen','poner al lado'],['die Seite','el lado'],['der Trick','el truco'],
     ['die öffentliche Bibliothek','la biblioteca pública'],['etwas benutzen','usar algo'],['die Mediathek','la mediateca'],
     ['außerhalb (von etwas)','fuera (de algo)'],['Musik einschalten','poner música'],['Das ist total cool!','¡Mola mucho!'],
@@ -354,10 +357,10 @@ const LISTS = {
     ['die Ecke','la esquina'],['einen Film zeigen','poner una película'],['das Strandrestaurant / die Strandbar','el chiringuito']]},
   ap2u1m1: { name: 'Apúntate 2 · U1 Módulo 1', words: [
     ['Was tut dir weh?','¿Qué te duele?'],['die Zahnschmerzen','el dolor de muelas'],['der Schmerz','el dolor'],
-    ['der Zahnarzt / die Zahnärztin','el dentista / la dentista'],['ich fühle mich schlecht','me siento mal'],
+    ['der Zahnarzt','el dentista'],['die Zahnärztin','la dentista'],['ich fühle mich schlecht','me siento mal'],
     ['der Bauch','la barriga'],['Geht es dir gut?','¿Estás bien?'],['das Knie','la rodilla'],['das Pflaster','la tirita'],
     ['das Taschentuch','el pañuelo'],['das Bein','la pierna'],['der Kopf','la cabeza'],['das Fieber','la fiebre'],
-    ['die Grippe','la gripe'],['morgen','mañana'],['der Arzt / die Ärztin','el médico / la médica'],
+    ['die Grippe','la gripe'],['morgen','mañana'],['der Arzt','el médico'],['die Ärztin','la médica'],
     ['der Körperteil','la parte del cuerpo'],['der Teil','la parte'],['der Körper','el cuerpo'],['das Auge','el ojo'],
     ['die Nase','la nariz'],['der Mund','la boca'],['der Rücken','la espalda'],['das Ohr','la oreja'],
     ['der Ellenbogen','el codo'],['der Arm','el brazo'],['die Hand','la mano'],['der Finger','el dedo'],['der Fuß','el pie'],
@@ -365,17 +368,18 @@ const LISTS = {
     ['Was ist los mit dir? / Was ist mit dir?','¿Qué te pasa?'],['Es geht mir nicht gut.','No estoy bien.'],
     ['Ich habe Kopfschmerzen.','Tengo dolor de cabeza.'],['Ich habe Fieber.','Tengo fiebre.'],['Ich habe Grippe.','Tengo gripe.']]},
   ap2u2ac: { name: 'Apúntate 2 · U2 Acércate', words: [
-    ['zusammen','juntos / juntas'],['wichtig sein','ser importante'],
-    ['(wegen etwas) nervös sein','estar nervioso (por algo) / estar nerviosa (por algo)'],['im Ernst','en serio'],
-    ['gute Noten bekommen','sacar buenas notas'],['gut sein (in etwas)','ser bueno (en algo) / ser buena (en algo)'],
+    ['zusammen (männlich)','juntos'],['zusammen (weiblich)','juntas'],['wichtig sein','ser importante'],
+    ['(wegen etwas) nervös sein (männlich)','estar nervioso (por algo)'],['(wegen etwas) nervös sein (weiblich)','estar nerviosa (por algo)'],
+    ['im Ernst','en serio'],['gute Noten bekommen','sacar buenas notas'],
+    ['gut sein (in etwas) (männlich)','ser bueno (en algo)'],['gut sein (in etwas) (weiblich)','ser buena (en algo)'],
     ['die Schulnote','la nota'],['Gut (Schulnote)','el notable'],['Wow! / Nicht schlecht!','¡Vaya!'],['nur','solo'],
     ['Befriedigend (Schulnote)','el bien'],['Französisch (Schulfach)','el francés / francés'],
     ['Sehr gut (Schulnote)','el sobresaliente'],['für mich','para mí'],['eine Menge / sehr','un montón'],
-    ['der Schüler / die Schülerin','el estudiante / la estudiante'],
-    ['schlecht sein (in etwas)','ser malo (en algo) / ser mala (en algo)'],
-    ['die Nase voll haben (von etwas)','estar harto (de algo) / estar harta (de algo)'],
+    ['der Schüler','el estudiante'],['die Schülerin','la estudiante'],
+    ['schlecht sein (in etwas) (männlich)','ser malo (en algo)'],['schlecht sein (in etwas) (weiblich)','ser mala (en algo)'],
+    ['die Nase voll haben (von etwas) (männlich)','estar harto (de algo)'],['die Nase voll haben (von etwas) (weiblich)','estar harta (de algo)'],
     ['nur Bahnhof verstehen','no entender ni jota'],['verstehen','entender'],['pauken (umgangssprachlich)','empollar'],
-    ['Ausreichend (Schulnote)','el suficiente'],['noch ein ... / noch eine ...','un ... más / una ... más'],
+    ['Ausreichend (Schulnote)','el suficiente'],['noch ein ...','un ... más'],['noch eine ...','una ... más'],
     ['der Spickzettel','la chuleta']]},
 };
 
@@ -388,7 +392,8 @@ const DIRS = {
 // hull = Hüllenpunkte, speed = Tempo-Faktor, dmg = Schaden pro Schuss (★ +1), cool = Feuerpause-Faktor,
 // fan = schießt immer gefächert (3 Kugeln pro Buchstabe), save = Chance, dass ein Schuss keine Munition kostet,
 // shot = Geschwindigkeit der Geschosse (1 = normal, 750 px/s),
-// ghost = jeder n-te Schuss ist ein Phantomschuss, der durch alle Gegner in seiner Bahn fliegt.
+// ghost = jeder n-te Schuss ist ein Phantomschuss, der durch alle Gegner in seiner Bahn fliegt,
+// orbit = Anzahl kreisender Drohnen, die Schüsse abfangen und Gegner bei Berührung beschädigen.
 const SKINS = [
   { id: 'falke',   name: 'Falke',   color: '#3ee0ff', wing: 18, hull: 6, speed: 1, dmg: 1, cool: 1,
     desc: 'Allrounder mit extra dicker Panzerung: 6 Hüllenpunkte statt 5. Sonst ganz normal.' },
@@ -401,6 +406,9 @@ const SKINS = [
   { id: 'phantom', name: 'Phantom', code: 'PHANTOM', color: '#ffc94a', wing: 24, fins: true, hull: 4, speed: 1.35, dmg: 1, cool: 0.85, save: 0.25, shot: 1.4, ghost: 4,
     desc: 'Sehr schnell und wendig, mit besonders schnellen Geschossen. Jeder 4. Schuss ist ein Phantomschuss, der durch alle Gegner in seiner Bahn fliegt. Im Lernmodus kostet außerdem jeder 4. Schuss im Schnitt keine Munition. Dafür nur 4 Hüllenpunkte.',
     need: '30 Wörter sicher', ok: s => s.secure >= 30 },
+  { id: 'orbit',   name: 'Orbit',   code: 'ORBIT',   color: '#a78bfa', wing: 20, fins: true, hull: 5, speed: 1, dmg: 1, cool: 1.1, orbit: 2,
+    desc: '2 Drohnen kreisen um das Schiff: Sie fangen gegnerische Schüsse ab und beschädigen Gegner, die sie berühren. Dafür etwas langsameres Feuer.',
+    need: 'Sektor 3 erreichen', ok: s => s.bestSector >= 3 },
 ];
 
 const START_AMMO = 'HOLAAMIGOVAMOS';
@@ -642,7 +650,7 @@ function leitnerUpdate(item, grade) {
 
 const secureIn = (pool, dir) => pool.filter(it => (leitner[lkey(dir, it)] || { box: 0 }).box >= SECURE_BOX).length;
 const secureTotal = () => Object.values(leitner).filter(r => r.box >= SECURE_BOX).length;
-const stats = () => ({ totalKills: store.get('totalKills', 0), hiscore: store.get('hiscore', 0), secure: secureTotal() });
+const stats = () => ({ totalKills: store.get('totalKills', 0), hiscore: store.get('hiscore', 0), secure: secureTotal(), bestSector: store.get('bestSector', 0) });
 const unlockedSkins = () => { const s = stats(), codes = store.get('codeSkins', []); return SKINS.filter(k => !k.ok || k.ok(s) || codes.includes(k.id)).map(k => k.id); };
 const currentSkin = () => SKINS.find(s => s.id === (G ? G.skin : store.get('skin', 'falke'))) || SKINS[0];
 
@@ -1109,9 +1117,50 @@ function addHeat() {
   }
 }
 
+// ---------- Orbit-Drohnen ----------
+const ORBIT_R = 46, ORBIT_SPEED = 2.6, ORBIT_HIT = 10;
+function orbitPositions() {
+  const n = currentSkin().orbit || 0, a0 = G.orbitA || 0;
+  return Array.from({ length: n }, (_, i) => {
+    const a = a0 + i * Math.PI * 2 / n;
+    return { x: G.player.x + Math.cos(a) * ORBIT_R, y: G.player.y - 6 + Math.sin(a) * ORBIT_R * 0.8 };
+  });
+}
+
+function updateOrbit(dt) {
+  if (!currentSkin().orbit) return;
+  G.orbitA = (G.orbitA || 0) + ORBIT_SPEED * dt;
+  for (const d of orbitPositions()) {
+    for (const s of G.shots) {   // gegnerische Schüsse abfangen
+      if (!s.gone && Math.hypot(s.x - d.x, s.y - d.y) < ORBIT_HIT + 6) { s.gone = true; explode(s.x, s.y, '#a78bfa', 8); SFX.clank(); }
+    }
+    for (const e of G.enemies) {   // Gegner bei Berührung beschädigen (kurze Pause je Gegner)
+      if (e.hp <= 0 || (e.orbitCd || 0) > 0 || Math.hypot(e.x - d.x, e.y - d.y) > e.r + ORBIT_HIT) continue;
+      e.orbitCd = 0.35; e.hp -= 1 * (1 + 0.35 * upLv('dmg')); e.flashT = 0.08;
+      explode(d.x, d.y, '#a78bfa', 6);
+      if (e.hp <= 0) killEnemy(e); else SFX.hit();
+    }
+  }
+  for (const e of G.enemies) if (e.orbitCd > 0) e.orbitCd -= dt;
+  G.shots = G.shots.filter(s => !s.gone);
+}
+
+function drawOrbit() {
+  if (!currentSkin().orbit || !G.player) return;
+  for (const d of orbitPositions()) {
+    ctx.save();
+    ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = 14; ctx.fillStyle = '#a78bfa';
+    ctx.beginPath(); ctx.arc(d.x, d.y, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#f1edff';
+    ctx.beginPath(); ctx.arc(d.x, d.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
 // Bewegen, Power-ups und Feuern: gleich in Wellen und (Arcade-)Bosskämpfen.
 function playerStep(dt) {
   movePlayer(dt);
+  updateOrbit(dt);
   updatePowerups(dt);
   if (G.arcade) updateHeat(dt);
   G.cooldown -= dt;
@@ -1409,6 +1458,7 @@ function mapStep() {
     const done = G.sector;
     G.sector = (G.sector || 0) + 1;
     G.map = genSector();
+    if (!G.test && !G.cheated && G.sector > store.get('bestSector', 0)) store.set('bestSector', G.sector);   // für Orbit-Freischaltung
     if (done) { phase = 'transition'; SFX.fanfare(); banner(`Sektor ${done} geschafft!<small>Weiter in Sektor ${G.sector}</small>`, 2000).then(showMap); return; }
   }
   showMap();
@@ -2299,6 +2349,7 @@ function draw(dt) {
     ctx.shadowBlur = 0;
     if (phase !== 'over') {
       drawShip(G.player.x, G.player.y, currentSkin());
+      drawOrbit();
       if (G.arcade && G.heat > 0) {
         const px = G.player.x, py = G.player.y + 26;
         ctx.fillStyle = 'rgba(24,35,77,.85)'; ctx.fillRect(px - 20, py, 40, 4);
@@ -2384,7 +2435,7 @@ const CHEATS = {
       resetArmed = true;
       return { warn: true, text: 'Achtung: Das löscht Highscore, Abschüsse, Lernfortschritt, freigeschaltete Schiffe und Codes. Zum Bestätigen „reset“ nochmal eingeben.' };
     }
-    for (const k of ['hiscore', 'hiscoreArcade', 'totalKills', 'leitner', 'codeSkins', 'skin', 'dev']) {
+    for (const k of ['hiscore', 'hiscoreArcade', 'bestSector', 'totalKills', 'leitner', 'codeSkins', 'skin', 'dev']) {
       try { localStorage.removeItem('vb_' + k); } catch (e) {}
     }
     leitner = {}; devUnlocked = false;
