@@ -747,9 +747,19 @@ function orderPool(pool, dir) {
     const r = leitner[lkey(dir, it)];
     if (!r) fresh.push(it); else if (r.due <= now) due.push(it); else later.push(it);
   }
+  // Fällige (niedrige Box zuerst) und neue Wörter werden zufällig ineinander gemischt,
+  // damit bei mehreren Themen nicht ein Katalog nach dem anderen drankommt.
   shuffle(due).sort((a, b) => leitner[lkey(dir, a)].box - leitner[lkey(dir, b)].box);
-  shuffle(later).sort((a, b) => leitner[lkey(dir, a)].due - leitner[lkey(dir, b)].due);
-  return [...due, ...shuffle(fresh), ...later];
+  shuffle(fresh);
+  const mixed = [];
+  while (due.length || fresh.length) {
+    const takeDue = due.length && (!fresh.length || Math.random() < 2 * due.length / (2 * due.length + fresh.length));
+    mixed.push((takeDue ? due : fresh).shift());
+  }
+  // Noch nicht fällige: grob nach Fälligkeitstag, innerhalb eines Tages zufällig
+  const day = it => Math.floor(leitner[lkey(dir, it)].due / 86400000);
+  shuffle(later).sort((a, b) => day(a) - day(b));
+  return [...mixed, ...later];
 }
 
 function leitnerUpdate(item, grade) {
@@ -1668,8 +1678,6 @@ const NODE_TYPES = {
   boss:     { icon: 'crown', name: 'Sektorboss',    color: '#ff3355', w: 0 },   // immer die letzte Stufe, nie zufällig
 };
 const BOSS_LAYER = MAP_LAYERS;   // eigene Stufe über der letzten normalen Stufe
-// Pro Karte: Reparaturdock, Schatz und Händler je 1–2, zusammen höchstens 30 % der Knoten.
-const NONCOMBAT_MAX_EACH = 2, NONCOMBAT_SHARE = 0.3;
 const COMBAT_NODES = ['fight', 'curse', 'bless', 'bonus'];
 const CURSES = {
   kami:   { name: 'Drohnenschwarm',  desc: 'viel mehr Kamikaze-Drohnen' },
@@ -1689,15 +1697,14 @@ const BLESSINGS = {
   shield: { name: 'Segen des Schutzes',  desc: 'Start mit 3 Schilden' },
 };
 const pickKey = obj => { const k = Object.keys(obj); return k[Math.random() * k.length | 0]; };
-
-// Karten mit sehr wenigen Knoten neu würfeln, damit die Pflicht-Knoten (Reparatur, Schatz, Händler)
-// zusammen unter 30 % bleiben: mindestens MAP_MIN_NODES Knoten (ohne Sektorboss).
+// Karten mit sehr wenigen Knoten (kaum Auswahl) oder ohne gültige Stopp-Verteilung neu würfeln.
+// Mindestens MAP_MIN_NODES Knoten (ohne Sektorboss).
 const MAP_MIN_NODES = 10;
 function genSector() {
   let m;
   for (let i = 0; i < 30; i++) {
     m = genSectorOnce();
-    if (m.nodes.filter(n => n.type !== 'boss').length >= MAP_MIN_NODES) break;
+    if (m.ok && m.nodes.filter(n => n.type !== 'boss').length >= MAP_MIN_NODES) break;
   }
   return m;
 }
@@ -1718,35 +1725,43 @@ function genSectorOnce() {
   }
   for (const e of edges) grid[e.l][e.a].next.push(`${e.l + 1}-${e.b}`);
   const nodes = grid.flat().filter(Boolean);
-  for (const n of nodes) {
-    if (n.layer === 0) { n.type = 'fight'; continue; }
-    const types = Object.keys(NODE_TYPES).filter(t => NODE_TYPES[t].w > 0 && !(n.layer === 1 && (t === 'rest' || t === 'shop')));
-    let roll = Math.random() * types.reduce((s, t) => s + NODE_TYPES[t].w, 0);
-    n.type = types.find(t => (roll -= NODE_TYPES[t].w) < 0) || 'fight';
-  }
-  // Jede Karte hat mindestens ein Reparaturdock, einen Schatz und einen Händler, damit es nicht
-  // nur Kämpfe gibt. Fehlt einer, wird ein Kampfknoten in den angegebenen Stufen umgewandelt.
-  const ensure = (type, layers) => {
-    if (nodes.some(n => n.type === type)) return;
-    const fights = nodes.filter(n => layers.includes(n.layer) && n.type === 'fight');
-    const pool = fights.length ? fights : nodes.filter(n => layers.includes(n.layer) && !['rest', 'treasure', 'shop'].includes(n.type));
-    if (pool.length) pool[Math.random() * pool.length | 0].type = type;
+  // Alle Wege sollen gleich viele Kämpfe haben und sich stattdessen darin unterscheiden, WAS man
+  // unterwegs findet. Dazu gibt es zwei „Rast-Stufen“ (nicht direkt hintereinander): Dort ist jeder
+  // Knoten ein Reparaturdock, Händler oder Schatz, alle anderen Stufen sind Kämpfe (normal, Fluch,
+  // Segen, Bonus). So hat jeder Weg genau 4 Kämpfe und 2 Stopps. Auf keinem Weg kommt derselbe
+  // Stopp zweimal vor, und Knoten derselben Stufe bekommen möglichst verschiedene Typen.
+  const restLayers = [[2, 4], [2, 5], [3, 5]][Math.random() * 3 | 0];
+  const STOPS = ['rest', 'shop', 'treasure'];
+  const combatTypes = COMBAT_NODES.filter(t => NODE_TYPES[t].w > 0);
+  const rollCombat = () => {
+    let roll = Math.random() * combatTypes.reduce((s, t) => s + NODE_TYPES[t].w, 0);
+    return combatTypes.find(t => (roll -= NODE_TYPES[t].w) < 0) || 'fight';
   };
-  ensure('rest', [2, 3, 4]);
-  ensure('treasure', [1, 2, 3, 4]);
-  ensure('shop', [3, 4, 5]);
-  // Obergrenzen: je Typ höchstens NONCOMBAT_MAX_EACH, zusammen höchstens NONCOMBAT_SHARE aller
-  // Knoten. Überzählige werden zu normalen Kämpfen. Von jedem Typ bleibt mindestens einer.
-  const NONCOMBAT = ['rest', 'treasure', 'shop'];
-  const ofType = t => shuffle(nodes.filter(n => n.type === t));
-  for (const t of NONCOMBAT) for (const n of ofType(t).slice(NONCOMBAT_MAX_EACH)) n.type = 'fight';
-  const maxTotal = Math.max(NONCOMBAT.length, Math.floor(nodes.length * NONCOMBAT_SHARE));
-  let extra = shuffle(nodes.filter(n => NONCOMBAT.includes(n.type)));
-  while (extra.length > maxTotal) {
-    const n = extra.find(x => nodes.filter(y => y.type === x.type).length > 1);
-    if (!n) break;
-    n.type = 'fight';
-    extra = extra.filter(x => x !== n);
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const paths = [];
+  const walk = (n, acc) => { acc = [...acc, n]; if (!n.next.length) paths.push(acc); else for (const id of n.next) walk(byId[id], acc); };
+  for (const n of nodes.filter(n => n.layer === 0)) walk(n, []);
+  let best = null, bestScore = -1;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    for (const l of restLayers) {
+      const row = nodes.filter(n => n.layer === l), types = [...shuffle([...STOPS]), ...shuffle([...STOPS])];
+      row.forEach((n, i) => { n.type = types[i]; });
+    }
+    const pathsOk = paths.every(p => { const s = p.filter(n => STOPS.includes(n.type)).map(n => n.type); return new Set(s).size === s.length; });
+    if (!pathsOk) continue;
+    const score = new Set(nodes.filter(n => STOPS.includes(n.type)).map(n => n.type)).size;   // möglichst alle 3 Stopp-Arten
+    if (score > bestScore) { bestScore = score; best = nodes.map(n => n.type); }
+    if (score === STOPS.length) break;
+  }
+  if (best) nodes.forEach((n, i) => { n.type = best[i]; });
+  for (const n of nodes) {
+    if (restLayers.includes(n.layer)) continue;
+    n.type = n.layer === 0 ? 'fight' : rollCombat();
+  }
+  // Keine zwei Bonuswellen und keine zwei Flüche direkt hintereinander auf einem Weg.
+  for (const n of nodes) for (const id of n.next) {
+    const m = byId[id];
+    if (m && (m.type === 'bonus' || m.type === 'curse') && m.type === n.type) m.type = 'fight';
   }
   for (const n of nodes) {
     if (n.type === 'curse') n.curse = pickKey(CURSES);
@@ -1756,7 +1771,7 @@ function genSectorOnce() {
   const boss = { id: `${BOSS_LAYER}-boss`, layer: BOSS_LAYER, lane: (MAP_LANES - 1) / 2, next: [], type: 'boss' };
   for (const n of nodes) if (n.layer === MAP_LAYERS - 1) n.next.push(boss.id);
   nodes.push(boss);
-  return { nodes, cur: null, visited: [], sel: null };
+  return { nodes, cur: null, visited: [], sel: null, ok: !!best };
 }
 
 const mapNode = id => G.map.nodes.find(n => n.id === id);
@@ -2099,13 +2114,26 @@ function pickBossType() {
   return options[Math.random() * options.length | 0];
 }
 
-function bossItem() {
-  let items = G.roundItems.filter(it => !G.bossUsed.has(it));
+// Ganze Sätze (Satzzeichen, ¿/¡ oder mehr als 4 Wörter) sind unter Zeitdruck unfair.
+// Der Jäger (schnellster Boss) nimmt nur kurze Antworten bis 2 Wörter.
+const wordCount = s => s.trim().split(/\s+/).length;
+const isSentence = it => [it[0], it[1]].some(s => /[.?!]\s*$|^\s*[¿¡]/.test(s)) || wordCount(answerOf(it)) > 4;
+const bossOk = (it, kind) => !isSentence(it) && (kind !== 'fast' || wordCount(answerOf(it)) <= 2);
+
+function bossItem(kind = G.boss ? G.boss.kind : 'normal') {
+  let items = G.roundItems.filter(it => !G.bossUsed.has(it) && bossOk(it, kind));
   if (!items.length) {
     if (!G.queue.length) G.queue = orderPool(G.pool, G.dir);
-    items = [G.queue.shift()];
+    const i = G.queue.findIndex(it => bossOk(it, kind));
+    if (i >= 0) items = G.queue.splice(i, 1);
+    else {
+      let alt = G.pool.filter(it => bossOk(it, kind) && !G.bossUsed.has(it));
+      if (!alt.length) alt = G.pool.filter(it => bossOk(it, kind));
+      if (!alt.length) alt = G.pool.filter(it => !isSentence(it));
+      items = [alt.length ? alt[Math.random() * alt.length | 0] : G.queue.shift()];
+    }
   }
-  const item = G.round >= 4
+  const item = G.round >= 4 && kind !== 'fast'
     ? items.slice().sort((a, b) => answerOf(b).length - answerOf(a).length)[0]
     : items[Math.random() * items.length | 0];
   G.bossUsed.add(item);
@@ -2121,7 +2149,7 @@ function startBoss(forced) {
   // langsamer/schneller und ab Welle 6 insgesamt etwas schneller.
   const travel = (8 + 10 * hp) * def.slow * Math.max(0.75, 1 - Math.max(0, G.round - 5) * 0.03);
   G.player.y = PLAYER_Y0;   // Wortboss: Schiff steht fest unten
-  G.boss = { kind, ...def, item: bossItem(), x: W / 2, y: -90, t: 0, state: 'enter', hp, maxHp: hp, travel, lineY: H - 270, vy: 0, flashT: 0, shots: [], exact: true };
+  G.boss = { kind, ...def, item: bossItem(kind), x: W / 2, y: -90, t: 0, state: 'enter', hp, maxHp: hp, travel, lineY: H - 270, vy: 0, flashT: 0, shots: [], exact: true };
   $('bTitle').textContent = `${def.name} · ${hp} ${hp === 1 ? 'Wort' : 'Wörter'} · −${def.dmg} Hülle bei Durchbruch`;
   G.bullets = []; G.enemies = [];
   phase = 'boss';
@@ -2416,6 +2444,8 @@ async function bossDefeated() {
 // so wie das Spielfeld ganz am Anfang war. Die Höhe bleibt gleich.
 const W_NARROW = 600, W_WIDE = 1200;
 
+// Aktuelle Breiten-Vorgabe fürs Spielfeld (leer = CSS-Standard). Der iPad-Tippmodus stellt sie danach wieder her.
+let fieldWidthCss = '';
 function setFieldWidth(w) {
   const old = W;
   W = Math.round(w);
@@ -2424,11 +2454,11 @@ function setFieldWidth(w) {
   pointer.tx = pointer.tx * W / old;
   for (const s of stars) s.x *= W / old;
   const wrap = $('wrap');
-  if (W === W_NARROW) { wrap.style.width = ''; wrap.style.aspectRatio = ''; return; }
+  if (W === W_NARROW) { fieldWidthCss = ''; wrap.style.width = ''; wrap.style.aspectRatio = ''; return; }
   const vh = window.CSS && CSS.supports('height', '100dvh') ? '100dvh' : '100vh';
   const cap = W * (window.matchMedia && matchMedia('(pointer: coarse)').matches ? 1.5 : 1);
   wrap.style.aspectRatio = `${W} / ${H}`;
-  wrap.style.width = `min(100%, ${cap}px, calc((${vh} - 16px) * ${W / H}))`;
+  wrap.style.width = fieldWidthCss = `min(100%, ${cap}px, calc((${vh} - 16px) * ${W / H}))`;
 }
 
 // Breite weich verändern (ca. 1 s), danach geht es weiter.
@@ -2828,10 +2858,13 @@ function updateRingBoss(dt) {
     if (B.burstT <= 0) {
       // Kugelvorhang: Der Ring lässt über die ganze Breite der Flugbahn Kugeln senkrecht nach unten
       // fallen. Eine Gasse bleibt frei – zufällig links ODER rechts der Mitte, genau dort auf der Bahn.
-      B.burstT = 2.6;
+      // Das Kugelraster wird jedes Mal zufällig verschoben, sonst könnte man einfach zwischen
+      // zwei Bahnen stehen bleiben und nie getroffen werden.
+      B.burstT = 2.3 + Math.random() * 0.6;
       const span = Math.min(440, B.x - G.wallL - 20), side = Math.random() < 0.5 ? -1 : 1;
       const gapX = B.x + side * (160 + Math.random() * Math.max(0, span - 250)), gapW = 90, step = 52;
-      for (let x = B.x - span; x <= B.x + span + 1; x += step) {
+      const off = Math.random() * step;
+      for (let x = B.x - span + off; x <= B.x + span + 1; x += step) {
         if (Math.abs(x - gapX) < gapW) continue;
         const y = B.y - Math.sqrt(Math.max(0, (B.r - 24) ** 2 - (x - B.x) ** 2));   // Startpunkt auf dem Ring
         G.shots.push({ x, y, vx: 0, vy: 230, color: '#ffc94a' });
@@ -4101,7 +4134,7 @@ document.addEventListener('focusout', () => {
   setTimeout(() => {   // beim Wechsel zwischen zwei Feldern nicht kurz zurückspringen
     if (isTypingField(document.activeElement)) return;
     document.body.classList.remove('typing');
-    $('wrap').style.width = '';
+    $('wrap').style.width = fieldWidthCss;   // nicht einfach leeren: beim Sektorboss ist das Feld breiter
     window.scrollTo(0, 0);   // falls Safari die Seite zum Feld verschoben hat
   }, 120);
 });
